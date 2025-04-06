@@ -45,6 +45,31 @@ git pull SomeUser feature
 
 We recommend using the provided Dev Container for development. This ensures a consistent environment with all necessary tools pre-installed.
 
+### Development Environment
+
+#### Using GitHub Codespaces
+
+With codespaces enabled, you can fork and use codespaces on GitHub. The Codespace will be initialized with all required dependencies and allow you to run tests.
+
+#### Using VS Code Remote Containers
+
+With [Visual Studio Code](https://code.visualstudio.com) and [Docker](https://www.docker.com/) installed, you can use the [VS Code remote containers plugin](https://code.visualstudio.com/docs/remote/containers-tutorial). The plugin will read the `.devcontainer` configuration in the repository and build the Docker container locally.
+
+#### Using Dev Container CLI
+
+With [npm](https://github.com/npm/cli) and [Docker](https://www.docker.com/) installed, you can run [Dev Container CLI](https://github.com/devcontainers/cli) to utilize the `.devcontainer` configuration from the command line.
+
+```bash
+npm install -g @devcontainers/cli
+cd AmpyFin
+devcontainer up --workspace-folder .
+devcontainer exec --workspace-folder . bash
+```
+
+#### Local Development
+
+See the [Installation](README#installation) section for how to set up local development. This is the harder approach because installing dependencies may be OS specific.
+
 ### Clone the Repository
 
 Clone the AmpyFin repository:

@@ -1,0 +1,43 @@
+name: 'ampyfin'
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ..:/workspace:cached
+    environment:
+      # The MongoDB client is coded with `tlsCAFile`, this implies `tls=True`.
+      # Relaxing certificate validations with `tlsInsecure` allows the client
+      # to connect to the server. Use in non-production environments.
+      - MONGO_URL=mongodb://root:example@mongodb:27017/?tlsInsecure=true
+    command: sleep infinity
+    network_mode: service:mongodb
+    depends_on:
+      - mongodb
+
+  mongodb:
+    image: mongo:8
+    restart: unless-stopped
+    volumes:
+      - ./mongodb.pem:/etc/ssl/mongodb.pem
+      - mongodb-data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=example
+    ports:
+      - "27017:27017"
+    command:
+      # The MongoDB server is TLS configured with a self-signed certificate.
+      # The `tlsAllowConnectionsWithoutCertificates` option allows connections
+      # without client certificates, useful for development and testing.
+      [
+        "--tlsMode", "allowTLS",
+        "--tlsCertificateKeyFile", "/etc/ssl/mongodb.pem",
+        "--setParameter", "tlsUseSystemCA=true",
+        "--tlsAllowConnectionsWithoutCertificates"
+      ]
+
+volumes:
+  mongodb-data:
