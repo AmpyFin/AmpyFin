@@ -1,3 +1,4 @@
+import os
 import sys
 from os import environ as env
 
@@ -13,6 +14,8 @@ try:
     BASE_URL = env["BASE_URL"]
     WANDB_API_KEY = env["WANDB_API_KEY"]
     mongo_url = env["MONGO_URL"]
+    PRICE_DB_PATH = os.path.join("dbs", "price_data.db")
+    STRATEGY_DECISIONS_DB_PATH = os.path.join("dbs", "strategy_decisions.db")
 except KeyError as e:
     print(f"[error]: {e} required environment variable missing")
     sys.exit(1)
