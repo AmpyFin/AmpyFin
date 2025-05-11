@@ -6,8 +6,8 @@ from datetime import datetime
 
 import certifi
 from pymongo import MongoClient
-
-from config import FINANCIAL_PREP_API_KEY, mongo_url
+from TradeSim.utils import update_ranks
+from config import mongo_url
 from control import (
     loss_price_change_ratio_d1,
     loss_price_change_ratio_d2,
@@ -36,7 +36,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
-        logging.FileHandler("log/rank_system.log"),  # Log messages to a file
+        logging.FileHandler("rank_system.log"),  # Log messages to a file
         logging.StreamHandler(),  # Log messages to the console
     ],
 )
@@ -333,72 +333,6 @@ def update_portfolio_values(client):
     # Update MongoDB with the modified strategy documents
 
 
-def update_ranks(client):
-    """
-    based on portfolio values, rank the strategies to use for actual trading_simulator
-    """
-
-    db = client.trading_simulator
-    points_collection = db.points_tally
-    rank_collection = db.rank
-    algo_holdings = db.algorithm_holdings
-    """
-   delete all documents in rank collection first
-   """
-    rank_collection.delete_many({})
-    """
-   Reason why delete rank is so that rank is intially null and
-   then we can populate it in the order we wish
-   now update rank based on successful_trades - failed
-   """
-    q = []
-    for strategy_doc in algo_holdings.find({}):
-        """
-        based on (points_tally (less points pops first), failed-successful(more negtive pops first),
-        portfolio value (less value pops first), and then strategy_name), we add to heapq.
-        """
-        strategy_name = strategy_doc["strategy"]
-        if strategy_name == "test" or strategy_name == "test_strategy":
-            continue
-        if points_collection.find_one({"strategy": strategy_name})["total_points"] > 0:
-            heapq.heappush(
-                q,
-                (
-                    points_collection.find_one({"strategy": strategy_name})[
-                        "total_points"
-                    ]
-                    * 2
-                    + (strategy_doc["portfolio_value"]),
-                    strategy_doc["successful_trades"] - strategy_doc["failed_trades"],
-                    strategy_doc["amount_cash"],
-                    strategy_doc["strategy"],
-                ),
-            )
-        else:
-            heapq.heappush(
-                q,
-                (
-                    strategy_doc["portfolio_value"],
-                    strategy_doc["successful_trades"] - strategy_doc["failed_trades"],
-                    strategy_doc["amount_cash"],
-                    strategy_doc["strategy"],
-                ),
-            )
-    rank = 1
-    while q:
-        _, _, _, strategy_name = heapq.heappop(q)
-        rank_collection.insert_one({"strategy": strategy_name, "rank": rank})
-        rank += 1
-
-    """
-   Delete historical database so new one can be used tomorrow
-   """
-    db = client.HistoricalDatabase
-    collection = db.HistoricalDatabase
-    collection.delete_many({})
-    print("Successfully updated ranks")
-    print("Successfully deleted historical database")
-
 
 def main():
     """
@@ -421,7 +355,7 @@ def main():
 
             if not ndaq_tickers:
                 logging.info("Market is open. Processing strategies.")
-                ndaq_tickers = get_ndaq_tickers(mongo_client, FINANCIAL_PREP_API_KEY)
+                ndaq_tickers = get_ndaq_tickers()
 
             threads = []
 
@@ -444,7 +378,7 @@ def main():
             # However, we should add more features here like premarket analysis
 
             if early_hour_first_iteration is True:
-                ndaq_tickers = get_ndaq_tickers(mongo_client, FINANCIAL_PREP_API_KEY)
+                ndaq_tickers = get_ndaq_tickers()
                 early_hour_first_iteration = False
                 post_market_hour_first_iteration = True
                 logging.info("Market is in early hours. Waiting for 30 seconds.")

@@ -2,7 +2,6 @@ import heapq
 import logging
 import threading
 import time
-from statistics import median
 
 import certifi
 from alpaca.data.historical.stock import StockHistoricalDataClient
@@ -10,7 +9,7 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide
 from polygon import RESTClient
 from pymongo import MongoClient
-
+from TradeSim.utils import weighted_majority_decision_and_median_quantity
 from config import (
     API_KEY,
     API_SECRET,
@@ -45,53 +44,6 @@ ca = certifi.where()
 #         logging.StreamHandler()             # Log messages to the console
 #     ]
 # )
-
-
-def weighted_majority_decision_and_median_quantity(decisions_and_quantities):
-    """
-    Determines the majority decision (buy, sell, or hold) and returns the weighted median quantity for the chosen action.
-    Groups 'strong buy' with 'buy' and 'strong sell' with 'sell'.
-    Applies weights to quantities based on strategy coefficients.
-    """
-    buy_decisions = ["buy", "strong buy"]
-    sell_decisions = ["sell", "strong sell"]
-
-    weighted_buy_quantities = []
-    weighted_sell_quantities = []
-    buy_weight = 0
-    sell_weight = 0
-    hold_weight = 0
-
-    # Process decisions with weights
-    for decision, quantity, weight in decisions_and_quantities:
-        if decision in buy_decisions:
-            weighted_buy_quantities.extend([quantity])
-            buy_weight += weight
-        elif decision in sell_decisions:
-            weighted_sell_quantities.extend([quantity])
-            sell_weight += weight
-        elif decision == "hold":
-            hold_weight += weight
-
-    # Determine the majority decision based on the highest accumulated weight
-    if buy_weight > sell_weight and buy_weight > hold_weight:
-        return (
-            "buy",
-            median(weighted_buy_quantities) if weighted_buy_quantities else 0,
-            buy_weight,
-            sell_weight,
-            hold_weight,
-        )
-    elif sell_weight > buy_weight and sell_weight > hold_weight:
-        return (
-            "sell",
-            median(weighted_sell_quantities) if weighted_sell_quantities else 0,
-            buy_weight,
-            sell_weight,
-            hold_weight,
-        )
-    else:
-        return "hold", 0, buy_weight, sell_weight, hold_weight
 
 
 def process_ticker(

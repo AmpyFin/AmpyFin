@@ -45,7 +45,7 @@ The default for mode is live to protect against accidental training
 benchmark asset is what benchmark you want to compare to - typically SPY, QQQ, DOW, or NDAQ.
 """
 
-mode = "live"
+mode = "test"
 
 benchmark_asset = "QQQ"
 """
@@ -60,12 +60,12 @@ so please understand the time it takes to train.
 """
 
 train_period_start = "2024-01-01"
-train_period_end = "2024-01-15"
-test_period_start = "2024-01-15"
-test_period_end = "2024-01-30"
+train_period_end = "2024-01-05"
+test_period_start = "2024-01-05"
+test_period_end = "2024-01-10"
 
 
-train_tickers = []
+train_tickers = ['AAPL', 'MSFT']
 
 """
 train_time_delta_mode can be multiplicative, additive, or balanced.

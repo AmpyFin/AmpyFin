@@ -10,8 +10,8 @@ import pandas as pd
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from log_config import LOG_CONFIG  # noqa: E402
 
-from config import PRICE_DB_PATH, STRATEGY_DECISIONS_DB_PATH  # noqa: E402
-
+PRICE_DB_PATH = os.path.join('dbs', 'databases', 'price_data.db')
+STRATEGY_DECISIONS_DB_PATH = os.path.join('dbs', 'databases', 'strategy_decisions.db')
 # from control import train_tickers  # noqa: E402
 from strategies.categorise_talib_indicators_vect import (
     strategies,

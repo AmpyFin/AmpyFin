@@ -1,10 +1,12 @@
 import functools
 from datetime import datetime, timedelta
+import heapq
 from multiprocessing import Pool, cpu_count
-
+import sqlite3
+from typing import Callable
 import pandas as pd
 import yfinance as yf
-
+from statistics import median
 from control import (
     trade_asset_limit,
     train_loss_price_change_ratio_d1,
@@ -23,124 +25,13 @@ from control import (
     train_time_delta_increment,
     train_time_delta_multiplicative,
 )
-from helper_files.client_helper import get_ndaq_tickers, strategies
+# from helper_files.client_helper import get_ndaq_tickers, strategies
 from helper_files.train_client_helper import get_historical_data
-from utils.session import limiter
+from helper_files.client_helper import strategies, get_ndaq_tickers
+from utilities.session import limiter
+import os
 
 # from strategies.talib_indicators import *
-
-
-def initialize_simulation(
-    period_start,
-    period_end,
-    train_tickers,
-    mongo_client,
-    FINANCIAL_PREP_API_KEY,
-    logger,
-):
-    """
-    Initializes the simulation by loading necessary data and setting up initial states.
-    Optimizations:
-      - Batch fetch indicator periods from MongoDB.
-      - Bulk download ticker historical data using yfinance with threading.
-      - Fallback to individual max period download if bulk download returns no data.
-    """
-    logger.info("Initializing simulation...")
-
-    ticker_price_history = {}
-    ideal_period = {}
-
-    # Connect to MongoDB and batch fetch indicator periods for all strategies.
-    db = mongo_client.IndicatorsDatabase
-    indicator_collection = db.Indicators
-    logger.info("Connected to MongoDB: Retrieved Indicators collection.")
-
-    # Assuming 'strategies' is a global list of strategy objects
-    strategy_names = [strategy.__name__ for strategy in strategies]
-    indicator_docs = list(
-        indicator_collection.find({"indicator": {"$in": strategy_names}})
-    )
-    indicator_lookup = {
-        doc["indicator"]: doc.get("ideal_period") for doc in indicator_docs
-    }
-    for strategy in strategies:
-        if strategy.__name__ in indicator_lookup:
-            ideal_period[strategy.__name__] = indicator_lookup[strategy.__name__]
-            # logger.info(f"Retrieved ideal period for {strategy.__name__}: {indicator_lookup[strategy.__name__]}")
-        else:
-            logger.info(
-                f"No ideal period found for {strategy.__name__}, using default."
-            )
-
-    # If no tickers provided, fetch Nasdaq tickers
-    if not train_tickers:
-        logger.info("No tickers provided. Fetching Nasdaq tickers...")
-        train_tickers = get_ndaq_tickers(mongo_client, FINANCIAL_PREP_API_KEY)
-        logger.info(f"Fetched {len(train_tickers)} tickers.")
-
-    # Determine the historical data start date (2 years before period_start)
-    start_date = datetime.strptime(period_start, "%Y-%m-%d")
-    data_start_date = (start_date - timedelta(days=730)).strftime("%Y-%m-%d")
-    logger.info(f"Fetching historical data from {data_start_date} to {period_end}.")
-
-    # Bulk download ticker data using yfinance (with threading enabled)
-    try:
-        bulk_data = yf.download(
-            tickers=train_tickers,
-            start=data_start_date,
-            end=period_end,
-            interval="1d",
-            group_by="ticker",
-            threads=True,
-            session=limiter,
-        )
-    except Exception as bulk_err:
-        logger.error(f"Bulk download failed: {str(bulk_err)}")
-        bulk_data = None
-
-    # Process each ticker's data. If bulk data is missing or empty for a ticker, fall back to max period download.
-    for ticker in train_tickers:
-        try:
-            ticker_data = None
-            if bulk_data is not None:
-                # If multiple tickers, data has a MultiIndex on columns.
-                if (
-                    isinstance(bulk_data.columns, pd.MultiIndex)
-                    and ticker in bulk_data.columns.levels[0]
-                ):
-                    ticker_data = bulk_data[ticker]
-                # If only one ticker was downloaded, bulk_data may be a regular DataFrame.
-                elif not isinstance(bulk_data.columns, pd.MultiIndex):
-                    ticker_data = bulk_data
-            # Check if data was successfully retrieved.
-            if ticker_data is None or ticker_data.empty:
-                raise Exception("No data from bulk download")
-            # logger.info(f"Successfully retrieved data for {ticker}: {ticker_data.index[0].date()} to {ticker_data.index[-1].date()}")
-            ticker_price_history[ticker] = ticker_data
-        except Exception as e:
-            logger.info(
-                f"Error retrieving specific date range for {ticker} via bulk download, fetching max available data. Error: {str(e)}"
-            )
-            try:
-                ticker_data = yf.Ticker(ticker, session=limiter).history(
-                    period="max", interval="1d"
-                )
-                if ticker_data.empty:
-                    logger.warning(
-                        f"No data available for {ticker} even for max period."
-                    )
-                else:
-                    logger.info(
-                        f"Successfully retrieved max available data for {ticker}: {ticker_data.index[0].date()} to {ticker_data.index[-1].date()}"
-                    )
-                ticker_price_history[ticker] = ticker_data
-            except Exception as e2:
-                logger.error(f"Failed to retrieve data for {ticker}: {str(e2)}")
-                ticker_price_history[ticker] = None
-
-    logger.info("Simulation initialization complete.")
-    return ticker_price_history, ideal_period
-
 
 def update_time_delta(time_delta, mode):
     """
@@ -277,39 +168,48 @@ def execute_trade(
 
 
 def simulate_trading_day(
-    current_date,
-    strategies,
-    trading_simulator,
-    points,
-    time_delta,
-    ticker_price_history,
-    train_tickers,
-    precomputed_decisions,
+    current_date: pd.Timestamp,
+    ticker_price_history: pd.DataFrame,
+    precomputed_decisions: pd.DataFrame,
+    strategies: list[Callable],
+    train_tickers: list[str],
     logger,
+    trading_simulator: dict,
+    points: dict,
+    time_delta: float,
 ):
     """
     Optimized version of simulate_trading_day that uses precomputed strategy decisions.
     """
-    date_str = current_date.strftime("%Y-%m-%d")
-    logger.info(f"Simulating trading for {date_str}.")
+    # current_date = current_date.strftime("%Y-%m-%d")
+    print(f"Simulating trading for {current_date}.")
 
     for ticker in train_tickers:
-        if date_str in ticker_price_history[ticker].index:
-            daily_data = ticker_price_history[ticker].loc[date_str]
-            current_price = daily_data["Close"]
-
+        key = (ticker, current_date)
+        if key in ticker_price_history.index:
+            current_price = ticker_price_history.loc[key, 'Close']
+            print(f"Current price for {ticker} on {current_date}: {current_price}")
+        else:
+            current_price = None
+            print(f'No price for {ticker} on {current_date}. Skipping.')
+            continue
+        if current_price:
+            print('Getting precomputed decisions...')
+            # Get precomputed strategy decisions for the current date
             for strategy in strategies:
                 strategy_name = strategy.__name__
 
+                
                 # Get precomputed strategy decision
-                action = precomputed_decisions[strategy_name][ticker].get(date_str)
-
-                if action is None:
-                    # Skip if no precomputed decision (should not happen if properly precomputed)
-                    logger.warning(
-                        f"No precomputed decision for {ticker}, {strategy_name}, {date_str}"
-                    )
-                    continue
+                num_action = precomputed_decisions.at[key, strategy_name]
+                print(f"Precomputed decision for {ticker} on {current_date}: {num_action}")
+               
+                if num_action == 1: 
+                    action = 'Buy'
+                elif num_action == -1:
+                    action = 'Sell'
+                else:
+                    action = 'Hold'
 
                 # Get account details for trade size calculation
                 account_cash = trading_simulator[strategy_name]["amount_cash"]
@@ -330,7 +230,7 @@ def simulate_trading_day(
                     portfolio_qty,
                     total_portfolio_value,
                 )
-
+                print(f"Decision: {decision}, Quantity: {qty}")
                 # Execute trade
                 trading_simulator, points = execute_trade(
                     decision,
@@ -478,3 +378,181 @@ def _process_single_day(
                 continue
 
     return result
+
+
+
+def update_ranks(client):
+    """
+    based on portfolio values, rank the strategies to use for actual trading_simulator
+    """
+
+    db = client.trading_simulator
+    points_collection = db.points_tally
+    rank_collection = db.rank
+    algo_holdings = db.algorithm_holdings
+    """
+   delete all documents in rank collection first
+   """
+    rank_collection.delete_many({})
+    """
+   Reason why delete rank is so that rank is intially null and
+   then we can populate it in the order we wish
+   now update rank based on successful_trades - failed
+   """
+    q = []
+    for strategy_doc in algo_holdings.find({}):
+        """
+        based on (points_tally (less points pops first), failed-successful(more negtive pops first),
+        portfolio value (less value pops first), and then strategy_name), we add to heapq.
+        """
+        strategy_name = strategy_doc["strategy"]
+        if strategy_name == "test" or strategy_name == "test_strategy":
+            continue
+        if points_collection.find_one({"strategy": strategy_name})["total_points"] > 0:
+            heapq.heappush(
+                q,
+                (
+                    points_collection.find_one({"strategy": strategy_name})[
+                        "total_points"
+                    ]
+                    * 2
+                    + (strategy_doc["portfolio_value"]),
+                    strategy_doc["successful_trades"] - strategy_doc["failed_trades"],
+                    strategy_doc["amount_cash"],
+                    strategy_doc["strategy"],
+                ),
+            )
+        else:
+            heapq.heappush(
+                q,
+                (
+                    strategy_doc["portfolio_value"],
+                    strategy_doc["successful_trades"] - strategy_doc["failed_trades"],
+                    strategy_doc["amount_cash"],
+                    strategy_doc["strategy"],
+                ),
+            )
+    rank = 1
+    while q:
+        _, _, _, strategy_name = heapq.heappop(q)
+        rank_collection.insert_one({"strategy": strategy_name, "rank": rank})
+        rank += 1
+
+    """
+   Delete historical database so new one can be used tomorrow
+   """
+    db = client.HistoricalDatabase
+    collection = db.HistoricalDatabase
+    collection.delete_many({})
+    print("Successfully updated ranks")
+    print("Successfully deleted historical database")
+
+
+
+def weighted_majority_decision_and_median_quantity(decisions_and_quantities):
+    """
+    Determines the majority decision (buy, sell, or hold) and returns the weighted median quantity for the chosen action.
+    Groups 'strong buy' with 'buy' and 'strong sell' with 'sell'.
+    Applies weights to quantities based on strategy coefficients.
+    """
+    buy_decisions = ["buy", "strong buy"]
+    sell_decisions = ["sell", "strong sell"]
+
+    weighted_buy_quantities = []
+    weighted_sell_quantities = []
+    buy_weight = 0
+    sell_weight = 0
+    hold_weight = 0
+
+    # Process decisions with weights
+    for decision, quantity, weight in decisions_and_quantities:
+        if decision in buy_decisions:
+            weighted_buy_quantities.extend([quantity])
+            buy_weight += weight
+        elif decision in sell_decisions:
+            weighted_sell_quantities.extend([quantity])
+            sell_weight += weight
+        elif decision == "hold":
+            hold_weight += weight
+
+    # Determine the majority decision based on the highest accumulated weight
+    if buy_weight > sell_weight and buy_weight > hold_weight:
+        return (
+            "buy",
+            median(weighted_buy_quantities) if weighted_buy_quantities else 0,
+            buy_weight,
+            sell_weight,
+            hold_weight,
+        )
+    elif sell_weight > buy_weight and sell_weight > hold_weight:
+        return (
+            "sell",
+            median(weighted_sell_quantities) if weighted_sell_quantities else 0,
+            buy_weight,
+            sell_weight,
+            hold_weight,
+        )
+    else:
+        return "hold", 0, buy_weight, sell_weight, hold_weight
+
+
+
+
+
+def fetch_price_from_db(start_date: pd.Timestamp, end_date: pd.Timestamp, train_tickers: list[str]) -> pd.DataFrame:
+
+     # Get the current file's directory
+    current_file_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Construct the database path relative to the current file
+    db_path = os.path.join(current_file_dir, '../dbs/databases/price_data.db')
+    conn = sqlite3.connect(db_path)
+    combined_df = pd.DataFrame()
+
+    # Convert start_date and end_date to string format
+    start_date_str = start_date.strftime("%Y-%m-%d")
+    end_date_str = end_date.strftime("%Y-%m-%d")
+
+    for ticker in train_tickers:
+        query = f"""
+            SELECT *
+            FROM "{ticker}"
+            WHERE Date BETWEEN ? AND ?
+        """
+        df = pd.read_sql_query(query, conn, params=(start_date_str, end_date_str))
+        df['Ticker'] = ticker
+        combined_df = pd.concat([combined_df, df], ignore_index=True)
+
+    conn.close()
+    return combined_df
+
+def fetch_strategy_decisions(
+  start_date: pd.Timestamp, end_date: pd.Timestamp, train_tickers: list[str],  strategies: list) -> pd.DataFrame:
+    # Get the current file's directory
+    current_file_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Construct the database path relative to the current file
+    db_path = os.path.join(current_file_dir, '../dbs/databases/strategy_decisions.db')
+    conn = sqlite3.connect(db_path)
+    combined_df = pd.DataFrame()
+
+    # Convert start_date and end_date to string format
+    start_date = start_date.strftime("%Y-%m-%d")
+    end_date = end_date.strftime("%Y-%m-%d")
+
+    # Convert strategy functions to their string names if needed
+    strategy_names = [s.__name__ if callable(s) else str(s) for s in strategies]
+
+    for ticker in train_tickers:
+        columns = ', '.join([f'"{s}"' for s in strategy_names])  # safely quote column names
+        query = f"""
+            SELECT Date, {columns}
+            FROM "{ticker}"
+            WHERE Date BETWEEN ? AND ?
+        """
+        df = pd.read_sql_query(query, conn, params=(start_date, end_date))
+        df['Ticker'] = ticker
+        combined_df = pd.concat([combined_df, df], ignore_index=True)
+
+    conn.close()
+    return combined_df

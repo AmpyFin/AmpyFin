@@ -4,8 +4,10 @@ from datetime import datetime
 from alpaca.trading.client import TradingClient
 from pymongo import MongoClient, errors
 
-from config import API_KEY, API_SECRET, mongo_url
+from config import  mongo_url
 from helper_files.client_helper import get_latest_price, strategies
+import subprocess
+import os
 
 indicator_periods = {
     "BBANDS_indicator": "1y",
@@ -306,19 +308,65 @@ def initialize_historical_database_cache():
     except errors.ConnectionError as e:
         print(f"Error connecting to the MongoDB server: {e}")
         return
+    
+def initialize_dbs():
+    # Define the paths to the scripts
+    store_price_data_path = os.path.join(os.path.dirname(__file__), 'dbs', 'store_price_data.py')
+    compute_strategy_path = os.path.join(os.path.dirname(__file__), 'dbs', 'compute_store_strategy_decisions.py')
+
+    # Construct the database paths
+    price_data_db_path = os.path.join(os.path.dirname(__file__), 'dbs', 'databases', 'price_data.db')
+    strategy_decisions_db_path = os.path.join(os.path.dirname(__file__), 'dbs', 'databases', 'strategy_decisions.db')
+
+    # Check if price_data.db already exists and remove it
+    if os.path.exists(price_data_db_path):
+        os.remove(price_data_db_path)
+        print(f"Removed existing database: {price_data_db_path}")
+
+    # Call the first script: store_price_data.py
+    print("Calling store_price_data.py...")
+    try:
+        subprocess.run(['python', store_price_data_path], check=True)
+        print("store_price_data.py executed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing store_price_data.py: {e}")
+        return  # Exit if the first script fails
+
+    # Check if price_data.db was created
+    if not os.path.exists(price_data_db_path):
+        print(f"Error: {price_data_db_path} was not created by store_price_data.py")
+        return
+
+    # Check if strategy_decisions.db already exists and remove it
+    if os.path.exists(strategy_decisions_db_path):
+        os.remove(strategy_decisions_db_path)
+        print(f"Removed existing database: {strategy_decisions_db_path}")
+
+    # Call the second script: compute_store_strategy_decisions.py
+    print("Calling compute_store_strategy_decisions.py...")
+    try:
+        subprocess.run(['python', compute_strategy_path], check=True)
+        print("compute_store_strategy_decisions.py executed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing compute_store_strategy_decisions.py: {e}")
+        return
+
+    
 
 
 if __name__ == "__main__":
-    insert_rank_to_coefficient(200)
+    # insert_rank_to_coefficient(200)
 
-    initialize_rank()
+    # initialize_rank()
 
-    initialize_time_delta()
+    # initialize_time_delta()
 
-    initialize_market_setup()
+    # initialize_market_setup()
 
-    initialize_portfolio_percentages()
+    # initialize_portfolio_percentages()
 
-    initialize_indicator_setup()
+    # initialize_indicator_setup()
 
-    initialize_historical_database_cache()
+    # initialize_historical_database_cache()
+    
+    initialize_dbs()
