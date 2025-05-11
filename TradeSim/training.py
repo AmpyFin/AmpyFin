@@ -4,11 +4,10 @@ import os
 import sys
 import time
 from datetime import datetime, timedelta
-
+import pandas as pd
 from variables import config_dict
 
 import wandb
-from config import FINANCIAL_PREP_API_KEY
 
 # Add the parent directory to the Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)) + "/..")
@@ -24,7 +23,7 @@ from control import (
 train_tickers
 from helper_files.client_helper import get_ndaq_tickers, strategies
 from helper_files.train_client_helper import local_update_portfolio_values
-from TradeSim.utils import simulate_trading_day, update_time_delta
+from TradeSim.utils import simulate_trading_day, update_time_delta, fetch_price_from_db, fetch_strategy_decisions
 
 results_dir = "results"
 if not os.path.exists(results_dir):
@@ -32,14 +31,14 @@ if not os.path.exists(results_dir):
 
 
 def train(
-    ticker_price_history, ideal_period, mongo_client, precomputed_decisions, logger
+     logger
 ):
     """
     get from ndaq100
     """
     global train_tickers
     if not train_tickers:
-        train_tickers = get_ndaq_tickers(mongo_client, FINANCIAL_PREP_API_KEY)
+        train_tickers = get_ndaq_tickers()
         logger.info(f"Fetched {len(train_tickers)} tickers.")
 
     logger.info(f"Ticker price history initialized for {len(train_tickers)} tickers.")
@@ -62,42 +61,79 @@ def train(
     time_delta = train_time_delta
 
     logger.info("Trading simulator and points initialized.")
-
-    start_date = datetime.strptime(train_period_start, "%Y-%m-%d")
-    end_date = datetime.strptime(train_period_end, "%Y-%m-%d")
+    start_date = pd.to_datetime(train_period_start, format="%Y-%m-%d")
+    end_date = pd.to_datetime(train_period_end, format="%Y-%m-%d")
     current_date = start_date
+    # print(type(current_date))
 
-    logger.info(f"Training period: {start_date} to {end_date}")
+    #write a query to get all price data from start_date to end_date for all tickers in train_tickers
+
+    # Fetch price data for the specified date range
+    ticker_price_history = fetch_price_from_db(
+        start_date - timedelta(days=1), end_date, train_tickers)
+    ticker_price_history['Date'] = pd.to_datetime(ticker_price_history['Date'], format="%Y-%m-%d")
+    ticker_price_history.set_index(['Ticker', 'Date'], inplace=True)
+    # print(ticker_price_history)
+
+    # Get data from start_date to end_date for all tickers in train_tickers and also filter by strategies. Get only those strategies that are in the strategies list
+    # Preload and use them
+    precomputed_decisions = fetch_strategy_decisions( 
+        start_date - timedelta(days=1),
+        end_date,
+        train_tickers,
+        strategies,
+    ) 
+    precomputed_decisions['Date'] = pd.to_datetime(precomputed_decisions['Date'], format="%Y-%m-%d")
+    precomputed_decisions.set_index(['Ticker', 'Date'], inplace=True)
+    # print(type(precomputed_decisions.index.get_level_values(1).loc[0]))
+    # print(precomptued_decisions['Date'].loc[0])
+    # print(type(ticker_price_history.index.get_level_values(1).loc[0]))
+
+    # print("Ticker price history index types:")
+    # for level, level_name in enumerate(ticker_price_history.index.names):
+    #     print(f"Level {level} ({level_name}): {type(ticker_price_history.index.get_level_values(level)[0])}")
+
+    # print("Precomputed decisions index types:")
+    # for level, level_name in enumerate(precomputed_decisions.index.names):
+    #     print(f"Level {level} ({level_name}): {type(precomputed_decisions.index.get_level_values(level)[0])}")
+    # print(ticker_price_history)
+    # print(precomputed_decisions)
+
+    # print(f"Training period: {start_date} to {end_date}")
+    # print(current_date, end_date)
+    dates = ticker_price_history.index.get_level_values(1).unique()
+    dates = [date.strftime("%Y-%m-%d") for date in dates]
+    dates = sorted(dates)
+    # print(dates)
     while current_date <= end_date:
-        logger.info(f"Processing date: {current_date.strftime('%Y-%m-%d')}")
-
-        if (
-            current_date.weekday() >= 5
-            or current_date.strftime("%Y-%m-%d")
-            not in ticker_price_history[train_tickers[0]].index
-        ):
-            logger.info(
+        print(f"Processing date: {current_date.strftime('%Y-%m-%d')}")
+        
+        if current_date.strftime("%Y-%m-%d") not in dates :
+            print(
                 f"Skipping {current_date.strftime('%Y-%m-%d')} (weekend or missing data)."
             )
             current_date += timedelta(days=1)
             continue
-
+        
         trading_simulator, points = simulate_trading_day(
             current_date,
+            ticker_price_history.copy(),
+            precomputed_decisions.copy(),
             strategies,
+            train_tickers,
+            logger,
             trading_simulator,
             points,
-            time_delta,
-            ticker_price_history,
-            train_tickers,
-            precomputed_decisions,
-            logger,
+            time_delta
         )
-
+        print(trading_simulator)
+        # print('Before update', trading_simulator)
         active_count, trading_simulator = local_update_portfolio_values(
-            current_date, strategies, trading_simulator, ticker_price_history, logger
+            current_date, strategies, trading_simulator, ticker_price_history.copy(), logger
         )
+        print('After update', trading_simulator)
 
+       
         logger.info(f"Trading simulator: {trading_simulator}")
         logger.info(f"Points: {points}")
         logger.info(f"Date: {current_date.strftime('%Y-%m-%d')}")
@@ -111,7 +147,8 @@ def train(
 
         # Move to next day
         current_date += timedelta(days=1)
-        time.sleep(5)
+        print('**'*50)
+        # time.sleep(5)
 
     results_dir = "results"
     if not os.path.exists(results_dir):

@@ -12,9 +12,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from log_config import LOG_CONFIG
 
-from config import PRICE_DB_PATH
 from dbs.helper_functions import get_ndaq_tickers, retry_with_backoff
 
+PRICE_DB_PATH = os.path.join('dbs','databases', 'price_data.db')
 
 def download_OHLCV_from_yf(ticker_list, logger):
     logger.info(f"start downloading data {len(ticker_list)=}")
@@ -66,6 +66,7 @@ def store_OHLCV_in_db(df, ticker_list, price_data_db_name, logger):
             tickers_with_no_data.append(ticker)
             logger.warning(f"no OHLCV data for {ticker}")
         else:
+            # print(f"Saving data to {price_data_db_name}")
             with sqlite3.connect(price_data_db_name) as conn:
                 try:
                     df_single_ticker.to_sql(
@@ -154,6 +155,8 @@ if __name__ == "__main__":
     # Get the current filename without extension
     module_name = os.path.splitext(os.path.basename(__file__))[0]
     log_filename = f"log/{module_name}.log"
+    if not os.path.exists("log"):
+        os.makedirs("log")
     LOG_CONFIG["handlers"]["file_dynamic"]["filename"] = log_filename
 
     logging.config.dictConfig(LOG_CONFIG)

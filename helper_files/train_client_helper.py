@@ -51,36 +51,34 @@ def local_update_portfolio_values(
         # Update portfolio value based on current holdings
         for ticker in trading_simulator[strategy_name]["holdings"]:
             qty = trading_simulator[strategy_name]["holdings"][ticker]["quantity"]
-            if current_date.strftime("%Y-%m-%d") in ticker_price_history[ticker].index:
-                current_price = ticker_price_history[ticker].loc[
-                    current_date.strftime("%Y-%m-%d")
-                ]["Close"]
+            key = (ticker, current_date)
+            if key in ticker_price_history.index:
+                current_price = ticker_price_history.loc[key, 'Close']
                 position_value = qty * current_price
                 amount += position_value
-                # logger.info(f"{strategy_name}: {ticker} - Qty: {qty}, Price: {current_price}, Position Value: {position_value}")
+                logger.info(f"{strategy_name}: {ticker} - Qty: {qty}, Price: {current_price}, Position Value: {position_value}")
             else:
-                pass
-                # logger.info(f"{strategy_name}: {ticker} - No price data available for {current_date.strftime('%Y-%m-%d')}, skipping.")
+                logger.info(f'No price for {ticker} on {current_date}. Skipping.')
+                continue
 
         cash = trading_simulator[strategy_name]["amount_cash"]
         trading_simulator[strategy_name]["portfolio_value"] = amount + cash
 
-        # logger.info(f"{strategy_name}: Final portfolio value: {trading_simulator[strategy_name]['portfolio_value']}")
+        logger.info(f"{strategy_name}: Final portfolio value: {trading_simulator[strategy_name]['portfolio_value']}")
 
         # Count active strategies (i.e., those with a portfolio value different from the initial $50,000)
         if trading_simulator[strategy_name]["portfolio_value"] != 50000:
             active_count += 1
-            # logger.info(f"{strategy_name}: Strategy is active.")
+            logger.info(f"{strategy_name}: Strategy is active.")
 
     # logger.info(f"Total active strategies: {active_count}")
     logger.info(f"Completed portfolio update for {current_date.strftime('%Y-%m-%d')}.")
 
     return active_count, trading_simulator
 
-
 def calculate_metrics(account_values):
     # Fill non-leading NA values with the previous value using 'ffill' (forward fill)
-    account_values_filled = account_values.fillna(method="ffill")
+    account_values_filled = account_values.ffill()
     returns = account_values_filled.pct_change().dropna()
     # Sharpe Ratio
     sharpe_ratio = returns.mean() / returns.std() * np.sqrt(252)

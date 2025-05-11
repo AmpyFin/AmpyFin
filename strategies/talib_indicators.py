@@ -7,7 +7,7 @@ import talib as ta
 import yfinance as yf
 
 from control import trade_asset_limit
-from utils.session import limiter
+from utilities.session import limiter
 
 sys.path.append("..")
 

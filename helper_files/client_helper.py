@@ -4,6 +4,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import urlopen
+import pandas as pd
 
 import yfinance as yf
 from alpaca.trading.enums import OrderSide, TimeInForce
@@ -145,7 +146,7 @@ from strategies.talib_indicators import (
     WILLR_indicator,
     WMA_indicator,
 )
-from utils.session import limiter
+from utilities.session import limiter
 
 sys.path.append("..")
 
@@ -295,14 +296,14 @@ statistical_functions = [
 ]
 
 strategies = (
-    overlap_studies
-    + momentum_indicators
-    + volume_indicators
-    + cycle_indicators
-    + price_transforms
-    + volatility_indicators
-    + pattern_recognition
-    + statistical_functions
+    # overlap_studies
+    # + momentum_indicators
+     volume_indicators
+    # + cycle_indicators
+    # + price_transforms
+    # + volatility_indicators
+    # + pattern_recognition
+    # + statistical_functions
 )
 
 
@@ -371,61 +372,11 @@ def place_order(trading_client, symbol, side, quantity, mongo_client):
     return order
 
 
-# Helper to retrieve NASDAQ-100 tickers from MongoDB
-def get_ndaq_tickers(mongo_client, FINANCIAL_PREP_API_KEY):
-    """
-    Connects to MongoDB and retrieves NASDAQ-100 tickers.
-
-    :param mongo_url: MongoDB connection URL
-    :return: List of NASDAQ-100 ticker symbols.
-    """
-
-    def call_ndaq_100():
-        """
-        Fetches the list of NASDAQ 100 tickers using the Financial Modeling Prep API and stores it in a MongoDB collection.
-        The MongoDB collection is cleared before inserting the updated list of tickers.
-        """
-        logging.info("Calling NASDAQ 100 to retrieve tickers.")
-
-        def get_jsonparsed_data(url):
-            """
-            Parses the JSON response from the provided URL.
-
-            :param url: The API endpoint to retrieve data from.
-            :return: Parsed JSON data as a dictionary.
-            """
-            response = urlopen(url)
-            data = response.read().decode("utf-8")
-            return json.loads(data)
-
-        try:
-            # API URL for fetching NASDAQ 100 tickers
-            ndaq_url = f"https://financialmodelingprep.com/api/v3/nasdaq_constituent?apikey={FINANCIAL_PREP_API_KEY}"  # noqa: E231
-            ndaq_stocks = get_jsonparsed_data(ndaq_url)
-            logging.info("Successfully retrieved NASDAQ 100 tickers.")
-        except Exception as e:
-            logging.error(f"Error fetching NASDAQ 100 tickers: {e}")
-            return
-        try:
-            # MongoDB connection details
-
-            db = mongo_client.stock_list
-            ndaq100_tickers = db.ndaq100_tickers
-
-            ndaq100_tickers.delete_many({})  # Clear existing data
-            ndaq100_tickers.insert_many(ndaq_stocks)  # Insert new data
-            logging.info("Successfully inserted NASDAQ 100 tickers into MongoDB.")
-        except Exception as e:
-            logging.error(f"Error inserting tickers into MongoDB: {e}")
-
-    call_ndaq_100()
-
-    tickers = [
-        stock["symbol"] for stock in mongo_client.stock_list.ndaq100_tickers.find()
-    ]
-
-    return tickers
-
+def get_ndaq_tickers():
+    url = "https://en.wikipedia.org/wiki/NASDAQ-100"
+    tables = pd.read_html(url)
+    df = tables[4]  # NASDAQ-100 companies table
+    return df["Ticker"].tolist()
 
 # Market status checker helper
 def market_status(polygon_client):
