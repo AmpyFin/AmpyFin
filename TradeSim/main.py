@@ -1,137 +1,98 @@
-#!/usr/bin/env python3
-"""
-main.py
-
-Entry point for AmpyFin training and testing workflows. Configures logging, MongoDB client,
-Weights & Biases integration, and dispatches to train or test routines based on the `mode`
-in `control.py`.
-"""
-
+import logging
 import os
 import sys
-import logging
+
 import certifi
-
-# Ensure project root is on PYTHONPATH for local imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# Third-party imports
-import wandb
-from pymongo import MongoClient
-
-# Local module imports
 from push import push
+
+# from push import push
+from pymongo import MongoClient
 from testing import test
 from training import train
 from variables import config_dict
+
+import wandb
+
+# Local module imports after standard/third-party imports
 from config import mongo_url
-from control import mode
+from control import mode, test_period_end, train_period_start, train_tickers
+from helper_files.client_helper import get_ndaq_tickers, strategies
+# from TradeSim.utils import , precompute_strategy_decisions
 
-# Path to the CA certificate bundle for MongoDB TLS
-CA_CERT_PATH = certifi.where()
-# Directory where log files will be written
-LOGS_DIR = "log"
-# Log filename
-LOG_FILE = "train_test.log"
+# Ensure sys.path manipulation is at the top, before other local imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+ca = certifi.where()
 
-def setup_logging(log_dir: str, log_file: str) -> logging.Logger:
-    """
-    Configure and return a logger that writes to a file in the given directory.
+# Set up logging
+logs_dir = "log"
+# Create the directory if it doesn't exist
+if not os.path.exists(logs_dir):
+    os.makedirs(logs_dir)
 
-    Args:
-        log_dir (str): Path to the directory where logs should be saved.
-        log_file (str): Name of the log file.
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
-    Returns:
-        logging.Logger: Configured logger instance.
-    """
-    # Create logs directory if it does not exist
-    os.makedirs(log_dir, exist_ok=True)
+formatter = logging.Formatter(
+    "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
-
-    formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    file_path = os.path.join(log_dir, log_file)
-    file_handler = logging.FileHandler(file_path)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-    return logger
-
-
-def get_mongo_client(uri: str, ca_file: str) -> MongoClient:
-    """
-    Create and return a MongoDB client with TLS support.
-
-    Args:
-        uri (str): MongoDB connection URI.
-        ca_file (str): Path to CA certificate bundle for TLS.
-
-    Returns:
-        MongoClient: Initialized MongoDB client.
-    """
-    return MongoClient(uri, tlsCAFile=ca_file)
-
-
-def init_wandb(config: dict) -> None:
-    """
-    Initialize Weights & Biases run with the provided configuration.
-
-    Args:
-        config (dict): Configuration dictionary for W&B.
-    """
-    wandb.login()
-    wandb.init(
-        project=config.get("project_name"),
-        config=config,
-        name=config.get("experiment_name"),
-    )
-
-def main() -> None:
-    """
-    Main entry point for training or testing workflows.
-
-    - Sets up logging
-    - Initializes MongoDB client
-    - Starts Weights & Biases run
-    - Dispatches to train or test routines based on `mode`
-
-    Returns:
-        None
-    """
-    logger = setup_logging(LOGS_DIR, LOG_FILE)
-    logger.info("Starting train/test runner")
-
-    # Initialize MongoDB client
-    mongo_client = get_mongo_client(mongo_url, CA_CERT_PATH)
-    logger.info("Connected to MongoDB")
-
-    # Initialize W&B
-    init_wandb(config_dict)
-    logger.info("Weights & Biases initialized")
-
-    # Dispatch based on mode
-    if mode == "train":
-        logger.info("Entering training mode")
-        train(logger)
-
-    elif mode == "test":
-        logger.info("Entering testing mode")
-        test(mongo_client, logger)
-
-    elif mode == "push":
-        logger.info("Entering push mode")
-        push()
-
-    else:
-        logger.error(f"Unknown mode: {mode}")
-
+file_handler = logging.FileHandler(os.path.join(logs_dir, "train_test.log"))
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 if __name__ == "__main__":
-    main()
+    mongo_client = MongoClient(mongo_url, tlsCAFile=ca)
+
+    # Initialize W&B run
+    wandb.login()
+    wandb.init(
+        project=config_dict["project_name"],
+        config=config_dict,
+        name=config_dict["experiment_name"],
+    )
+
+    # If no tickers provided, fetch Nasdaq tickers
+    if not train_tickers:
+        logger.info("No tickers provided. Fetching Nasdaq tickers...")
+        train_tickers = get_ndaq_tickers()
+        logger.info(f"Fetched {len(train_tickers)} tickers.")
+
+    # ticker_price_history, ideal_period = initialize_simulation(
+    #     train_period_start,
+    #     test_period_end,
+    #     train_tickers,
+    #     mongo_client,
+    #     logger,
+    # )
+
+    # print(ticker_price_history)
+    # # Precompute all strategy decisions
+    # precomputed_decisions = precompute_strategy_decisions(
+    #     strategies,
+    #     ticker_price_history,
+    #     train_tickers,
+    #     ideal_period,
+    #     train_period_start,
+    #     test_period_end,
+    #     logger,
+    # )   
+
+    # print(precomputed_decisions)
+    
+    if mode == "train":
+        train(
+            logger,
+        )
+
+    elif mode == "test":
+        test(
+ 
+            mongo_client,
+            logger,
+        )
+    # elif mode == "push":
+    #     push()
+    # elif mode == "push":
+    #     push()
