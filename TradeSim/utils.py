@@ -1,7 +1,4 @@
-import functools
-from datetime import datetime, timedelta
 import heapq
-from multiprocessing import Pool, cpu_count
 import sqlite3
 from typing import Callable
 import pandas as pd
@@ -25,8 +22,6 @@ from control import (
     train_time_delta_increment,
     train_time_delta_multiplicative,
 )
-# from helper_files.client_helper import get_ndaq_tickers, strategies
-from helper_files.train_client_helper import get_historical_data
 from helper_files.client_helper import strategies, get_ndaq_tickers
 from utilities.session import limiter
 import os
@@ -182,13 +177,13 @@ def simulate_trading_day(
     Optimized version of simulate_trading_day that uses precomputed strategy decisions.
     """
     # current_date = current_date.strftime("%Y-%m-%d")
-    print(f"Simulating trading for {current_date}.")
+    # print(f"Simulating trading for {current_date}.")
 
     for ticker in train_tickers:
         key = (ticker, current_date)
         if key in ticker_price_history.index:
             current_price = ticker_price_history.loc[key, 'Close']
-            print(f"Current price for {ticker} on {current_date}: {current_price}")
+            # print(f"Current price for {ticker} on {current_date}: {current_price}")
         else:
             current_price = None
             print(f'No price for {ticker} on {current_date}. Skipping.')
@@ -202,7 +197,7 @@ def simulate_trading_day(
                 
                 # Get precomputed strategy decision
                 num_action = precomputed_decisions.at[key, strategy_name]
-                print(f"Precomputed decision for {ticker} on {current_date}: {num_action}")
+                # print(f"Precomputed decision for {ticker} on {current_date}: {num_action}")
                
                 if num_action == 1: 
                     action = 'Buy'
@@ -230,7 +225,7 @@ def simulate_trading_day(
                     portfolio_qty,
                     total_portfolio_value,
                 )
-                print(f"Decision: {decision}, Quantity: {qty}")
+                # print(f"Decision: {decision}, Quantity: {qty}")
                 # Execute trade
                 trading_simulator, points = execute_trade(
                     decision,
@@ -265,120 +260,6 @@ def compute_trade_quantities(
         return "sell", min(portfolio_qty, max(1, int(portfolio_qty * 0.5)))
     else:
         return "hold", 0
-
-
-def precompute_strategy_decisions(
-    strategies,
-    ticker_price_history,
-    train_tickers,
-    ideal_period,
-    start_date,
-    end_date,
-    logger,
-):
-    """
-    Precomputes strategy decisions using parallel processing.
-    """
-    logger.info("Precomputing strategy decisions with parallel processing...")
-
-    # Convert string dates to datetime objects if needed
-    if isinstance(start_date, str):
-        start_date = datetime.strptime(start_date, "%Y-%m-%d")
-    if isinstance(end_date, str):
-        end_date = datetime.strptime(end_date, "%Y-%m-%d")
-
-    # Gather all valid trading days first
-    trading_days = []
-    current_date = start_date
-    while current_date <= end_date:
-        if current_date.weekday() < 5:  # Skip weekends
-            trading_days.append(current_date)
-        current_date += timedelta(days=1)
-
-    # Initialize result structure
-    precomputed_decisions = {
-        strategy.__name__: {ticker: {} for ticker in train_tickers}
-        for strategy in strategies
-    }
-
-    # Prepare parameters for parallel processing
-    # We'll process by date to allow better sharing of historical data
-    worker_func = functools.partial(
-        _process_single_day,
-        strategies=strategies,
-        ticker_price_history=ticker_price_history,
-        train_tickers=train_tickers,
-        ideal_period=ideal_period,
-    )
-
-    # Use a process pool to parallel process dates
-    num_workers = min(cpu_count(), len(trading_days))
-    logger.info(f"Using {num_workers} worker processes")
-
-    with Pool(processes=num_workers) as pool:
-        results = pool.map(worker_func, trading_days)
-
-    # Combine results from all processed days
-    for day_results in results:
-        if day_results:  # Skip empty results
-            date_str = day_results["date"]
-            for strategy_name, strategy_data in day_results["strategies"].items():
-                for ticker, action in strategy_data.items():
-                    precomputed_decisions[strategy_name][ticker][date_str] = action
-
-    logger.info(
-        f"Strategy decision precomputation complete. Processed {len(results)} trading days."
-    )
-    return precomputed_decisions
-
-
-def _process_single_day(
-    date, strategies, ticker_price_history, train_tickers, ideal_period
-):
-    """
-    Process a single day for all tickers and strategies.
-    This function will be executed in a separate process.
-    """
-    date_str = date.strftime("%Y-%m-%d")
-    result = {
-        "date": date_str,
-        "strategies": {strategy.__name__: {} for strategy in strategies},
-    }
-
-    # Find tickers with data for this date
-    available_tickers = [
-        ticker
-        for ticker in train_tickers
-        if date_str in ticker_price_history[ticker].index
-    ]
-
-    if not available_tickers:
-        return None  # No tickers have data for this date
-
-    # Process each ticker and strategy
-    for ticker in available_tickers:
-        for strategy in strategies:
-            strategy_name = strategy.__name__
-
-            try:
-                # Get historical data
-                historical_data = get_historical_data(
-                    ticker, date, ideal_period[strategy_name], ticker_price_history
-                )
-
-                if historical_data is None or historical_data.empty:
-                    continue
-
-                # Compute strategy signal
-                action = strategy(ticker, historical_data)
-                result["strategies"][strategy_name][ticker] = action
-
-            except Exception:
-                # Skip errors in worker process
-                continue
-
-    return result
-
 
 
 def update_ranks(client):

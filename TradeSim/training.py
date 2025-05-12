@@ -1,17 +1,28 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Training module for the trading simulator.
+
+This module handles the training phase of the trading simulation, including:
+- Loading and processing ticker data
+- Running simulated trading for each strategy
+- Tracking performance metrics
+- Saving results for later use in testing
+"""
+
 import heapq
 import json
 import os
 import sys
-import time
 from datetime import datetime, timedelta
 import pandas as pd
-from variables import config_dict
-
 import wandb
 
 # Add the parent directory to the Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)) + "/..")
 
+# Local imports
+from variables import config_dict
 from control import (
     train_period_end,
     train_period_start,
@@ -19,31 +30,44 @@ from control import (
     train_time_delta,
     train_time_delta_mode,
 )
-
-train_tickers
 from helper_files.client_helper import get_ndaq_tickers, strategies
 from helper_files.train_client_helper import local_update_portfolio_values
-from TradeSim.utils import simulate_trading_day, update_time_delta, fetch_price_from_db, fetch_strategy_decisions
+from TradeSim.utils import (
+    simulate_trading_day, 
+    update_time_delta, 
+    fetch_price_from_db, 
+    fetch_strategy_decisions
+)
 
-results_dir = "results"
-if not os.path.exists(results_dir):
-    os.makedirs(results_dir)
 
-
-def train(
-     logger
-):
+def train(logger):
     """
-    get from ndaq100
+    Execute the training phase of the trading simulator.
+    
+    This function runs simulated trading for all strategies over the training period,
+    evaluates their performance, and saves the results for later use in testing.
+    
+    Args:
+        logger (logging.Logger): Logger instance for recording information.
+    
+    Returns:
+        None: Results are saved to disk and logged to W&B.
     """
+    # Create results directory if it doesn't exist
+    results_dir = "results"
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
+        logger.info(f"Created results directory: {results_dir}")
+
+    # Initialize tickers if not provided
     global train_tickers
     if not train_tickers:
         train_tickers = get_ndaq_tickers()
         logger.info(f"Fetched {len(train_tickers)} tickers.")
 
     logger.info(f"Ticker price history initialized for {len(train_tickers)} tickers.")
-    # logger.info(f"Ideal period determined: {ideal_period}")
-
+    
+    # Initialize trading simulator data structure for each strategy
     trading_simulator = {
         strategy.__name__: {
             "holdings": {},
@@ -57,26 +81,29 @@ def train(
         for strategy in strategies
     }
 
+    # Initialize points tracker for each strategy
     points = {strategy.__name__: 0 for strategy in strategies}
+    
+    # Set initial time delta from configuration
     time_delta = train_time_delta
 
     logger.info("Trading simulator and points initialized.")
+    
+    # Parse date strings to datetime objects
     start_date = pd.to_datetime(train_period_start, format="%Y-%m-%d")
     end_date = pd.to_datetime(train_period_end, format="%Y-%m-%d")
     current_date = start_date
-    # print(type(current_date))
 
-    #write a query to get all price data from start_date to end_date for all tickers in train_tickers
-
-    # Fetch price data for the specified date range
+    # Fetch price data for the entire training period
+    logger.info(f"Fetching price data from {start_date} to {end_date}")
     ticker_price_history = fetch_price_from_db(
         start_date - timedelta(days=1), end_date, train_tickers)
     ticker_price_history['Date'] = pd.to_datetime(ticker_price_history['Date'], format="%Y-%m-%d")
     ticker_price_history.set_index(['Ticker', 'Date'], inplace=True)
-    # print(ticker_price_history)
+    logger.info(f"Price data fetched successfully")
 
-    # Get data from start_date to end_date for all tickers in train_tickers and also filter by strategies. Get only those strategies that are in the strategies list
-    # Preload and use them
+    # Preload all strategy decisions for the training period
+    logger.info("Preloading strategy decisions")
     precomputed_decisions = fetch_strategy_decisions( 
         start_date - timedelta(days=1),
         end_date,
@@ -85,36 +112,25 @@ def train(
     ) 
     precomputed_decisions['Date'] = pd.to_datetime(precomputed_decisions['Date'], format="%Y-%m-%d")
     precomputed_decisions.set_index(['Ticker', 'Date'], inplace=True)
-    # print(type(precomputed_decisions.index.get_level_values(1).loc[0]))
-    # print(precomptued_decisions['Date'].loc[0])
-    # print(type(ticker_price_history.index.get_level_values(1).loc[0]))
+    logger.info("Strategy decisions preloaded")
 
-    # print("Ticker price history index types:")
-    # for level, level_name in enumerate(ticker_price_history.index.names):
-    #     print(f"Level {level} ({level_name}): {type(ticker_price_history.index.get_level_values(level)[0])}")
-
-    # print("Precomputed decisions index types:")
-    # for level, level_name in enumerate(precomputed_decisions.index.names):
-    #     print(f"Level {level} ({level_name}): {type(precomputed_decisions.index.get_level_values(level)[0])}")
-    # print(ticker_price_history)
-    # print(precomputed_decisions)
-
-    # print(f"Training period: {start_date} to {end_date}")
-    # print(current_date, end_date)
+    # Get unique trading dates from price history
     dates = ticker_price_history.index.get_level_values(1).unique()
     dates = [date.strftime("%Y-%m-%d") for date in dates]
     dates = sorted(dates)
-    # print(dates)
+    logger.info(f"Found {len(dates)} trading days in the period")
+    
+    # Main simulation loop
     while current_date <= end_date:
-        print(f"Processing date: {current_date.strftime('%Y-%m-%d')}")
+        logger.info(f"Processing date: {current_date.strftime('%Y-%m-%d')}")
         
-        if current_date.strftime("%Y-%m-%d") not in dates :
-            print(
-                f"Skipping {current_date.strftime('%Y-%m-%d')} (weekend or missing data)."
-            )
+        # Skip non-trading days (weekends or holidays)
+        if current_date.strftime("%Y-%m-%d") not in dates:
+            logger.info(f"Skipping {current_date.strftime('%Y-%m-%d')} (weekend or missing data)")
             current_date += timedelta(days=1)
             continue
         
+        # Simulate trading for this day
         trading_simulator, points = simulate_trading_day(
             current_date,
             ticker_price_history.copy(),
@@ -126,35 +142,30 @@ def train(
             points,
             time_delta
         )
-        print(trading_simulator)
-        # print('Before update', trading_simulator)
+        
+        # Update portfolio values for all strategies
         active_count, trading_simulator = local_update_portfolio_values(
-            current_date, strategies, trading_simulator, ticker_price_history.copy(), logger
+            current_date, 
+            strategies, 
+            trading_simulator, 
+            ticker_price_history.copy(), 
+            logger
         )
-        print('After update', trading_simulator)
 
-       
-        logger.info(f"Trading simulator: {trading_simulator}")
-        logger.info(f"Points: {points}")
+        # Log daily results
         logger.info(f"Date: {current_date.strftime('%Y-%m-%d')}")
-        logger.info(f"time_delta: {time_delta}")
         logger.info(f"Active count: {active_count}")
+        logger.info(f"time_delta: {time_delta}")
         logger.info("-------------------------------------------------")
 
-        # Update time delta
+        # Update time delta according to specified mode
         time_delta = update_time_delta(time_delta, train_time_delta_mode)
         logger.info(f"Updated time delta: {time_delta}")
 
         # Move to next day
         current_date += timedelta(days=1)
-        print('**'*50)
-        # time.sleep(5)
-
-    results_dir = "results"
-    if not os.path.exists(results_dir):
-        os.makedirs(results_dir)
-        logger.info(f"Created results directory: {results_dir}")
-
+    
+    # Prepare and save results
     results = {
         "trading_simulator": trading_simulator,
         "points": points,
@@ -162,31 +173,34 @@ def train(
         "time_delta": time_delta,
     }
 
+    # Save results to file
     result_filename = f"{config_dict['experiment_name']}.json"
     results_file_path = os.path.join(results_dir, result_filename)
     with open(results_file_path, "w") as json_file:
         json.dump(results, json_file, indent=4)
 
-    # Create an artifact
+    # Create W&B artifact for results
     artifact = wandb.Artifact(result_filename, type="results")
     artifact.add_file(results_file_path)
-
-    # Log artifact to the current run
     wandb.log_artifact(artifact)
-
     logger.info(f"Training results saved to {results_file_path}")
 
+    # Find top performing strategies by portfolio value
     top_portfolio_values = heapq.nlargest(
         10, trading_simulator.items(), key=lambda x: x[1]["portfolio_value"]
     )
+    
+    # Find top performing strategies by points
     top_points = heapq.nlargest(10, points.items(), key=lambda x: x[1])
 
+    # Format and log results
     top_portfolio_values_list = []
     logger.info("Top 10 strategies with highest portfolio values:")
     for strategy, value in top_portfolio_values:
         top_portfolio_values_list.append([strategy, value["portfolio_value"]])
         logger.info(f"{strategy} - {value['portfolio_value']}")
 
+    # Log to W&B
     wandb.log({"TRAIN_top_portfolio_values": top_portfolio_values_list})
     wandb.log({"TRAIN_top_points": top_points})
 

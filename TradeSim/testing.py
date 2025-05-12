@@ -1,15 +1,26 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Testing module for the trading simulator.
+
+This module handles the testing phase of the trading simulation, including:
+- Loading trained strategy results
+- Applying weighted majority voting for trading decisions
+- Implementing portfolio management with stop-loss and take-profit mechanisms
+- Calculating and reporting performance metrics
+"""
+
 import heapq
 import json
 import os
-import time
-from datetime import datetime, timedelta
-
-import certifi
+from datetime import timedelta
 import pandas as pd
+import certifi
 from pymongo import MongoClient
-from variables import config_dict
-
 import wandb
+
+# Local imports
+from variables import config_dict
 from config import mongo_url
 from control import (
     benchmark_asset,
@@ -25,8 +36,6 @@ from control import (
     train_trade_asset_limit,
     train_trade_liquidity_limit,
 )
-
-train_tickers
 from helper_files.client_helper import get_ndaq_tickers, strategies
 from helper_files.train_client_helper import (
     calculate_metrics,
@@ -37,40 +46,47 @@ from TradeSim.utils import (
     compute_trade_quantities,
     simulate_trading_day,
     update_time_delta,
-    weighted_majority_decision_and_median_quantity, 
+    weighted_majority_decision_and_median_quantity,
     fetch_price_from_db,
     fetch_strategy_decisions,
 )
-results_dir = "results"
-if not os.path.exists(results_dir):
-    os.makedirs(results_dir)
-
-ca = certifi.where()
-mongo_client = MongoClient(mongo_url, tlsCAFile=ca)
 
 
 def initialize_test_account():
     """
-    Initializes the test trading account with starting parameters
+    Initialize the test trading account with starting parameters.
+    
+    Returns:
+        dict: The initialized trading account with default values.
     """
     return {
-        "holdings": {},
-        "cash": train_start_cash,
-        "trades": [],
-        "total_portfolio_value": train_start_cash,
+        "holdings": {},  # Current stock holdings
+        "cash": train_start_cash,  # Starting cash amount
+        "trades": [],  # History of all trades
+        "total_portfolio_value": train_start_cash,  # Initial portfolio value
     }
 
 
 def check_stop_loss_take_profit(account, ticker, current_price):
     """
-    Checks and executes stop loss and take profit orders
+    Check and execute stop loss and take profit orders for a given ticker.
+    
+    Args:
+        account (dict): The trading account to update.
+        ticker (str): The stock ticker to check.
+        current_price (float): The current price of the stock.
+        
+    Returns:
+        dict: The updated trading account.
     """
     if ticker in account["holdings"]:
         if account["holdings"][ticker]["quantity"] > 0:
+            # Check if price has dropped below stop loss or risen above take profit level
             if (
                 current_price < account["holdings"][ticker]["stop_loss"]
                 or current_price > account["holdings"][ticker]["take_profit"]
             ):
+                # Record the sell trade
                 account["trades"].append(
                     {
                         "symbol": ticker,
@@ -79,22 +95,32 @@ def check_stop_loss_take_profit(account, ticker, current_price):
                         "action": "sell",
                     }
                 )
+                # Update cash position after sale
                 account["cash"] += (
                     account["holdings"][ticker]["quantity"] * current_price
                 )
+                # Remove ticker from holdings
                 del account["holdings"][ticker]
     return account
 
 
-def execute_buy_orders(
-    buy_heap, suggestion_heap, account, ticker_price_history, current_date
-):
+def execute_buy_orders(buy_heap, suggestion_heap, account, ticker_price_history, current_date):
     """
-    Executes buy orders from the buy and suggestion heaps
+    Execute buy orders from the buy and suggestion heaps.
+    
+    Args:
+        buy_heap (list): Heap of prioritized buy orders.
+        suggestion_heap (list): Heap of suggested buy orders.
+        account (dict): The trading account to update.
+        ticker_price_history (pd.DataFrame): Historical price data for tickers.
+        current_date (datetime): The current trading date.
+        
+    Returns:
+        dict: The updated trading account.
     """
-    while (buy_heap or suggestion_heap) and float(
-        account["cash"]
-    ) > train_trade_liquidity_limit:
+    # Continue executing orders until either no more orders or insufficient cash
+    while (buy_heap or suggestion_heap) and float(account["cash"]) > train_trade_liquidity_limit:
+        # Choose which heap to pop from
         if buy_heap and float(account["cash"]) > train_trade_liquidity_limit:
             heap = buy_heap
         elif suggestion_heap and float(account["cash"]) > train_trade_liquidity_limit:
@@ -102,20 +128,19 @@ def execute_buy_orders(
         else:
             break
 
+        # Pop the highest priority order from the heap
         _, quantity, ticker = heapq.heappop(heap)
-        # print(f"Executing BUY order for {ticker} of quantity {quantity}")
 
-        # Use the passed dataframe ticker_price_history to get the current price
+        # Get current price for the ticker
         key = (ticker, current_date)
         if key in ticker_price_history.index:
-            
             current_price = ticker_price_history.loc[key, 'Close']
-            # print(ticker, current_date, current_price)
         else:
-            current_price = None
+            # Skip if no price data available
             print(f'No price for {ticker} on {current_date}. Skipping.')
             continue
 
+        # Record the buy trade
         account["trades"].append(
             {
                 "symbol": ticker,
@@ -126,6 +151,7 @@ def execute_buy_orders(
             }
         )
 
+        # Update cash and holdings
         account["cash"] -= quantity * current_price
         account["holdings"][ticker] = {
             "quantity": quantity,
@@ -139,10 +165,20 @@ def execute_buy_orders(
 
 def update_strategy_ranks(strategies, points, trading_simulator):
     """
-    Updates strategy rankings based on performance
+    Update strategy rankings based on performance metrics.
+    
+    Args:
+        strategies (list): List of strategy functions.
+        points (dict): Points earned by each strategy.
+        trading_simulator (dict): Performance data for each strategy.
+        
+    Returns:
+        dict: Updated rank for each strategy.
     """
     rank = {}
     q = []
+    
+    # Calculate scores for each strategy based on points and portfolio value
     for strategy in strategies:
         if points[strategy.__name__] > 0:
             score = (
@@ -152,6 +188,7 @@ def update_strategy_ranks(strategies, points, trading_simulator):
         else:
             score = trading_simulator[strategy.__name__]["portfolio_value"]
 
+        # Add strategy to priority queue with score and other metrics
         heapq.heappush(
             q,
             (
@@ -163,6 +200,7 @@ def update_strategy_ranks(strategies, points, trading_simulator):
             ),
         )
 
+    # Assign rank to each strategy based on its position in the queue
     coeff_rank = 1
     while q:
         _, _, _, strategy_name = heapq.heappop(q)
@@ -172,13 +210,21 @@ def update_strategy_ranks(strategies, points, trading_simulator):
     return rank
 
 
-def test(
-    mongo_client, logger
-):
+def test(mongo_client, logger):
     """
-    Runs the testing phase of the trading simulator.
+    Run the testing phase of the trading simulator.
+    
+    This function loads trained strategy results, applies a weighted majority
+    voting system for trading decisions, implements portfolio management with
+    stop-loss and take-profit, and calculates performance metrics.
+    
+    Args:
+        mongo_client (MongoClient): MongoDB client connection.
+        logger (logging.Logger): Logger instance for recording information.
+        
+    Returns:
+        None: Results are logged to file and W&B.
     """
-    global train_tickers
     logger.info("Starting testing phase...")
 
     # Get rank coefficients from database
@@ -187,11 +233,13 @@ def test(
     rank_to_coefficient = {doc["rank"]: doc["coefficient"] for doc in r_t_c.find({})}
     logger.info("Rank coefficients retrieved from database.")
 
-    # Load saved results
+    # Load saved training results
     logger.info("Loading saved training results...")
-    with open(
-        os.path.join(results_dir, f"{config_dict['experiment_name']}.json"), "r"
-    ) as json_file:
+    results_dir = "results"
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
+        
+    with open(os.path.join(results_dir, f"{config_dict['experiment_name']}.json"), "r") as json_file:
         results = json.load(json_file)
         trading_simulator = results["trading_simulator"]
         points = results["points"]
@@ -203,95 +251,89 @@ def test(
     account = initialize_test_account()
     rank = update_strategy_ranks(strategies, points, trading_simulator)
     
-    # start_date = datetime.strptime(test_period_start, "%Y-%m-%d")
-    # end_date = datetime.strptime(test_period_end, "%Y-%m-%d")
-    # current_date = start_date
-
+    # Parse date strings to datetime objects
     start_date = pd.to_datetime(test_period_start, format="%Y-%m-%d")
     end_date = pd.to_datetime(test_period_end, format="%Y-%m-%d")
     current_date = start_date
     
+    # Initialize series to track account values for metrics calculation
     account_values = pd.Series(index=pd.date_range(start=start_date, end=end_date))
     
-    # Fetch price data for the specified date range
+    tickers = train_tickers if train_tickers else get_ndaq_tickers()
+    logger.info(f"Using {len(tickers)} tickers for testing.")
+    
+    # Fetch price data for the entire testing period
+    logger.info(f"Fetching price data from {start_date} to {end_date}")
     ticker_price_history = fetch_price_from_db(
-        start_date - timedelta(days=1), end_date, train_tickers)
+        start_date - timedelta(days=1), end_date, tickers)
     ticker_price_history['Date'] = pd.to_datetime(ticker_price_history['Date'], format="%Y-%m-%d")
     ticker_price_history.set_index(['Ticker', 'Date'], inplace=True)
-    # print(ticker_price_history)
+    logger.info("Price data fetched successfully")
 
-    # Get data from start_date to end_date for all tickers in train_tickers and also filter by strategies. Get only those strategies that are in the strategies list
-    # Preload and use them
+    # Preload strategy decisions for the testing period
+    logger.info("Preloading strategy decisions")
     precomputed_decisions = fetch_strategy_decisions( 
         start_date - timedelta(days=1),
         end_date,
-        train_tickers,
+        tickers,
         strategies,
     ) 
     precomputed_decisions['Date'] = pd.to_datetime(precomputed_decisions['Date'], format="%Y-%m-%d")
     precomputed_decisions.set_index(['Ticker', 'Date'], inplace=True)
+    logger.info("Strategy decisions preloaded")
 
-    # print(ticker_price_history)
-    # print(precomputed_decisions)
-    logger.info(f"Testing period: {start_date} to {end_date}")
-    if not train_tickers:
-        train_tickers = get_ndaq_tickers()
-
-    # dates = ticker_price_history["Date"].unique()
+    # Get unique trading dates from price history
     dates = ticker_price_history.index.get_level_values(1).unique()
     dates = [date.strftime("%Y-%m-%d") for date in dates]
     dates = sorted(dates)
+    logger.info(f"Found {len(dates)} trading days in the period")
     
+    # Main simulation loop
     while current_date <= end_date:
-        # print(f"Processing date: {current_date.strftime('%Y-%m-%d')}")
+        logger.info(f"Processing date: {current_date.strftime('%Y-%m-%d')}")
 
-        # Skip non-trading days
+        # Skip non-trading days (weekends or holidays)
         if current_date.strftime("%Y-%m-%d") not in dates:
-            print(
-                f"Skipping {current_date.strftime('%Y-%m-%d')} (weekend or missing data)."
-            )
+            logger.info(f"Skipping {current_date.strftime('%Y-%m-%d')} (weekend or missing data)")
             current_date += timedelta(days=1)
             continue
 
-        # Update strategy coefficients
+        # Update strategy coefficients based on rankings
         for strategy in strategies:
             strategy_to_coefficient[strategy.__name__] = rank_to_coefficient[
                 rank[strategy.__name__]
             ]
-        # logger.info(f"Strategy coefficients updated: {strategy_to_coefficient}")
         
-        # print(ticker_price_history)
-      
-        # Process trading day
+        # Initialize buy heaps for this trading day
         buy_heap, suggestion_heap = [], []
-        # date_str = current_date.strftime("%Y-%m-%d")
-        # current_date = pd.to_datetime(date_str)
-        for ticker in train_tickers:
-            # print(' Processing Ticker:', ticker)
+        
+        # Process each ticker
+        for ticker in tickers:
+            # Get current price for this ticker
             key = (ticker, current_date)
             if key in ticker_price_history.index:
                 current_price = ticker_price_history.loc[key, 'Close']
-                print(f"{ticker} Price: {current_price}")
+                logger.debug(f"{ticker} Price: {current_price}")
             else:
-                print(f'No price for {ticker} on {current_date}. Skipping.')
+                logger.debug(f'No price for {ticker} on {current_date}. Skipping.')
                 continue
             
-            # logger.info(f"{ticker} - Current price: {current_price}")
-            # print(f"{ticker} - Current price: {current_price}")
-            # Check stop loss and take profit
+            # Check stop loss and take profit conditions
             account = check_stop_loss_take_profit(account, ticker, current_price)
 
-            # Get strategy decisions
+            # Collect decisions and quantities from all strategies
             decisions_and_quantities = []
             portfolio_qty = account["holdings"].get(ticker, {}).get("quantity", 0)
 
+            # Process each strategy's decision for the current ticker
             for strategy in strategies:
                 strategy_name = strategy.__name__
                 
                 # Get precomputed strategy decision
                 num_action = precomputed_decisions.at[key, strategy_name]
-                print(f"IN TESTING - {strategy_name}: {ticker} - {num_action}")
+                logger.debug(f"{strategy_name}: {ticker} - {num_action}")
                 
+                # Convert numeric action to string action
                 if num_action == 1: 
                     action = 'Buy'
                 elif num_action == -1:
@@ -299,11 +341,10 @@ def test(
                 else:
                     action = 'Hold'
                 
-                # print(ticker, strategy_name, action)
                 account_cash = account["cash"]
                 total_portfolio_value = account["total_portfolio_value"]
 
-                # Compute trade decision and quantity based on precomputed action
+                # Compute trade decision and quantity
                 decision, qty = compute_trade_quantities(
                     action,
                     current_price,
@@ -312,11 +353,11 @@ def test(
                     total_portfolio_value,
                 )
 
+                # Add decision to the list with its weight
                 weight = strategy_to_coefficient[strategy.__name__]
                 decisions_and_quantities.append((decision, qty, weight))
 
-            print(decisions_and_quantities)
-            # Process weighted decisions
+            # Calculate weighted majority decision
             (
                 decision,
                 quantity,
@@ -327,17 +368,13 @@ def test(
                 decisions_and_quantities
             )
 
-            # print(
-            #     f"{ticker} - Decision: {decision}, Quantity: {quantity}, Buy Weight: {buy_weight}, Sell Weight: {sell_weight}, Hold Weight: {hold_weight}"
-            # )
-
-            # Execute trading decisions
+            # Execute trading decision based on majority vote
             if (
                 decision == "buy"
-                and ((portfolio_qty + quantity) * current_price)
-                / account["total_portfolio_value"]
+                and ((portfolio_qty + quantity) * current_price) / account["total_portfolio_value"]
                 <= train_trade_asset_limit
             ):
+                # Add buy order to priority queue
                 heapq.heappush(
                     buy_heap,
                     (
@@ -348,6 +385,7 @@ def test(
                 )
 
             elif decision == "sell" and ticker in account["holdings"]:
+                # Execute sell order immediately
                 quantity = max(quantity, 1)
                 quantity = account["holdings"][ticker]["quantity"]
                 account["trades"].append(
@@ -361,20 +399,16 @@ def test(
                 )
                 account["cash"] += quantity * current_price
                 del account["holdings"][ticker]
-                logger.info(
-                    f"{ticker} - Sold {quantity} shares at ${current_price}"
-                )
+                logger.info(f"{ticker} - Sold {quantity} shares at ${current_price}")
 
             elif (
                 portfolio_qty == 0.0
                 and buy_weight > sell_weight
-                and ((quantity * current_price) / account["total_portfolio_value"])
-                < trade_asset_limit
+                and ((quantity * current_price) / account["total_portfolio_value"]) < trade_asset_limit
                 and float(account["cash"]) >= train_trade_liquidity_limit
             ):
-                max_investment = (
-                    account["total_portfolio_value"] * train_trade_asset_limit
-                )
+                # Add suggested buy to the suggestion heap
+                max_investment = account["total_portfolio_value"] * train_trade_asset_limit
                 buy_quantity = min(
                     int(max_investment // current_price),
                     int(account["cash"] // current_price),
@@ -387,34 +421,30 @@ def test(
                         (-(buy_weight - sell_weight), buy_quantity, ticker),
                     )
 
-        
-        # Execute buy orders
+        # Execute buy orders for this trading day
         account = execute_buy_orders(
             buy_heap, suggestion_heap, account, ticker_price_history, current_date
         )
-        # print(account)
-       
-        # Simulate ranking updates
-
+        
+        # Update strategy simulations for the day
         trading_simulator, points = simulate_trading_day(
             current_date,
             ticker_price_history.copy(),
             precomputed_decisions.copy(),
             strategies,
-            train_tickers,
+            tickers,
             logger,
             trading_simulator,
             points,
             time_delta
         )
-        print(trading_simulator)
-        # Update portfolio values
-        # Rewrite the function call with correct parameters from train_client_helper.py
+        
+        # Update portfolio values for all strategies
         active_count, trading_simulator = local_update_portfolio_values(
             current_date, strategies, trading_simulator, ticker_price_history, logger
         )
 
-        # Update time delta
+        # Update time delta according to specified mode
         time_delta = update_time_delta(time_delta, train_time_delta_mode)
 
         # Calculate and update total portfolio value
@@ -423,42 +453,36 @@ def test(
             key = (ticker, current_date)
             if key in ticker_price_history.index:
                 current_price = ticker_price_history.loc[key, 'Close']
-            total_value += account["holdings"][ticker]["quantity"] * current_price
+                total_value += account["holdings"][ticker]["quantity"] * current_price
+        
         account["total_portfolio_value"] = total_value
-
-        # Update account values for metrics
         account_values[current_date] = total_value
 
-        # Update rankings
+        # Update strategy rankings
         rank = update_strategy_ranks(strategies, points, trading_simulator)
 
         # Log daily results
         logger.info("-------------------------------------------------")
         logger.info(f"Account Cash: ${account['cash']: ,.2f}")
-        logger.info(f"Trades: {account['trades']}")
-        logger.info(f"Holdings: {account['holdings']}")
         logger.info(f"Total Portfolio Value: ${account['total_portfolio_value']: ,.2f}")
         logger.info(f"Active Count: {active_count}")
         logger.info("-------------------------------------------------")
 
+        # Move to next day
         current_date += timedelta(days=1)
-        print('**'*50)
-        # time.sleep(5)
-
-
 
     # Calculate final metrics and generate tear sheet
     metrics = calculate_metrics(account_values)
     wandb.log(metrics)
-
-    logger.info("Final metrics calculated.")
+    logger.info("Final metrics calculated:")
     logger.info(metrics)
 
+    # Generate performance visualization
     generate_tear_sheet(account_values, filename=f"{benchmark_asset}_vs_strategy")
-    logger.info("Tear sheet generated.")
+    logger.info("Tear sheet generated")
 
     # Print final results
-    logger.info("Testing Completed.")
+    logger.info("Testing Completed")
     logger.info("-------------------------------------------------")
     logger.info(f"Account Cash: ${account['cash']: ,.2f}")
     logger.info(f"Total Portfolio Value: ${account['total_portfolio_value']: ,.2f}")
