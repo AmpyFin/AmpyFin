@@ -8,7 +8,7 @@ from variables import config_dict
 
 from config import mongo_url
 from control import experiment_name
-from utils import update_ranks
+from utilities.common_utils import update_ranks
 
 ca = certifi.where()
 

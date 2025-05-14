@@ -36,23 +36,24 @@ from control import (
     train_trade_asset_limit,
     train_trade_liquidity_limit,
 )
-from helper_files.client_helper import get_ndaq_tickers, strategies
-from helper_files.train_client_helper import (
+from utilities.ranking_trading_utils import strategies
+from utilities.testing_utils import (
     calculate_metrics,
     generate_tear_sheet,
-    local_update_portfolio_values,
 )
-from TradeSim.utils import (
+from utilities.common_utils import (
+    get_ndaq_tickers,
     compute_trade_quantities,
     simulate_trading_day,
     update_time_delta,
     weighted_majority_decision_and_median_quantity,
     fetch_price_from_db,
     fetch_strategy_decisions,
+    local_update_portfolio_values,
 )
 
 
-def initialize_test_account():
+def initialize_test_account() -> dict:
     """
     Initialize the test trading account with starting parameters.
     
@@ -66,8 +67,7 @@ def initialize_test_account():
         "total_portfolio_value": train_start_cash,  # Initial portfolio value
     }
 
-
-def check_stop_loss_take_profit(account, ticker, current_price):
+def check_stop_loss_take_profit(account: dict, ticker: str, current_price: float) -> dict:
     """
     Check and execute stop loss and take profit orders for a given ticker.
     
@@ -104,7 +104,7 @@ def check_stop_loss_take_profit(account, ticker, current_price):
     return account
 
 
-def execute_buy_orders(buy_heap, suggestion_heap, account, ticker_price_history, current_date):
+def execute_buy_orders(buy_heap: list, suggestion_heap: list, account: dict, ticker_price_history: pd.DataFrame, current_date: pd.Timestamp) -> dict:
     """
     Execute buy orders from the buy and suggestion heaps.
     
@@ -163,7 +163,7 @@ def execute_buy_orders(buy_heap, suggestion_heap, account, ticker_price_history,
     return account
 
 
-def update_strategy_ranks(strategies, points, trading_simulator):
+def update_strategy_ranks(strategies: list, points: dict, trading_simulator: dict) -> dict:
     """
     Update strategy rankings based on performance metrics.
     
@@ -210,7 +210,7 @@ def update_strategy_ranks(strategies, points, trading_simulator):
     return rank
 
 
-def test(mongo_client, logger):
+def test(mongo_client: MongoClient, logger) -> None:
     """
     Run the testing phase of the trading simulator.
     
@@ -305,7 +305,8 @@ def test(mongo_client, logger):
             ]
         
         # Initialize buy heaps for this trading day
-        buy_heap, suggestion_heap = [], []
+        buy_heap = []
+        suggestion_heap = []
         
         # Process each ticker
         for ticker in tickers:
