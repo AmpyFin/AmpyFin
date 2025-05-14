@@ -4,13 +4,16 @@
 Main entry point for the trading simulator application.
 
 This module handles the initialization of the MongoDB client, logging,
-and calls the appropriate training or testing functions based on the mode.
+and calls the appropriate training, testing, or live workflows.
 """
 
 import logging
 import os
 import sys
 import certifi
+import subprocess
+import signal
+import time
 from pymongo import MongoClient
 import wandb
 
@@ -20,11 +23,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Local imports
 from config import mongo_url
 from variables import config_dict
-from control import mode, train_period_start, test_period_end, train_tickers
-from helper_files.client_helper import get_ndaq_tickers
+from control import mode
 from training import train
 from testing import test
-
 
 def setup_logging():
     """
@@ -37,29 +38,31 @@ def setup_logging():
         logging.Logger: Configured logger instance.
     """
     logs_dir = "log"
-    if not os.path.exists(logs_dir):
-        os.makedirs(logs_dir)
+    os.makedirs(logs_dir, exist_ok=True)
 
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
 
-    formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    fmt = "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s"
+    datefmt = "%Y-%m-%d %H:%M:%S"
+    formatter = logging.Formatter(fmt, datefmt=datefmt)
 
-    file_handler = logging.FileHandler(os.path.join(logs_dir, "train_test.log"))
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    
+    fh = logging.FileHandler(os.path.join(logs_dir, "train_test.log"))
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
     return logger
 
-
 def initialize_wandb():
-    """
-    Initialize and configure Weights & Biases for experiment tracking.
-    
-    Uses configuration from config_dict to set up the W&B run.
+    """Initializes the Weights & Biases (wandb) integration.
+
+        Logs into wandb, initializes a new wandb run, and configures it with the project name,
+        configuration dictionary, and experiment name from the global config_dict.
+
+        Args:
+            None
+
+        Returns:
+            None
     """
     wandb.login()
     wandb.init(
@@ -68,47 +71,92 @@ def initialize_wandb():
         name=config_dict["experiment_name"],
     )
 
+# keep track of child processes globally so signal handler can see them
+_procs = []
 
-def main():
+def _shutdown(signum=None, frame=None):
+    """Terminate all child processes, then exit."""
+    logging.info("Shutting down live mode processes…")
+    for p in _procs:
+        if p.poll() is None:
+            logging.info(f" → terminating PID {p.pid}")
+            p.terminate()
+    # give them a moment
+    time.sleep(1)
+    for p in _procs:
+        if p.poll() is None:
+            logging.warning(f" → killing PID {p.pid}")
+            p.kill()
+    sys.exit(0)
+
+def run_live(logger):
+    """Spawn trading.py and ranking.py as standalone, long‑running services."""
+    # install signal handlers to capture Ctrl+C / docker stop, etc.
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    scripts = [
+        [sys.executable, "trading.py"],
+        [sys.executable, "ranking.py"],
+    ]
+
+    for cmd in scripts:
+        logger.info(f"Starting subprocess: {' '.join(cmd)}")
+        p = subprocess.Popen(cmd)
+        _procs.append(p)
+
+    logger.info("Both trading.py and ranking.py started. Entering monitor loop.")
+    # monitor loop: if either child exits, tear down everything
+    try:
+        while True:
+            for p in _procs:
+                if p.poll() is not None:
+                    logger.error(f"Child PID {p.pid} exited (code {p.returncode}); shutting down.")
+                    _shutdown()
+            time.sleep(5)
+    except Exception:
+        _shutdown()
+
+def main() -> None:
+    """Main function that initializes the application and runs the selected mode.
+        Args:
+            None
+        Returns:
+            None
     """
-    Main function that initializes the application and runs the selected mode.
-    
-    Handles setup of MongoDB connection, logging, W&B initialization, and
-    delegates to the appropriate module based on the selected mode.
-    """
-    # Set up logging
     logger = setup_logging()
     logger.info("Starting trading simulator application")
-    
-    # Initialize MongoDB client with certificate
+
+    # Initialize MongoDB client
     ca = certifi.where()
     mongo_client = MongoClient(mongo_url, tlsCAFile=ca)
     logger.info("MongoDB client initialized")
-    
-    # Initialize W&B for experiment tracking
+
+    # Initialize W&B
     initialize_wandb()
     logger.info("Weights & Biases initialized")
 
-    # Run in the appropriate mode
     if mode == "train":
         logger.info("Running in training mode")
-        train(logger)
+        train(logger=logger)
+
     elif mode == "test":
         logger.info("Running in testing mode")
-        test(mongo_client, logger)
+        test(mongo_client=mongo_client, logger=logger)
+
+    elif mode == "live":
+        logger.info("Running in live mode (spawning trading & ranking)")
+        run_live(logger)
+
     elif mode == "push":
-        logger.info("Running in push mode")
-        # Placeholder for push mode functionality
-        # push(mongo_client, logger)
-        # This mode is not implemented yet
         logger.warning("Push mode is not implemented yet")
-    # Additional modes can be added here
+        sys.exit(1)
+
     else:
         logger.error(f"Invalid mode: {mode}")
         sys.exit(1)
-    
-    logger.info("Application completed successfully")
 
+    logger.info("Application completed successfully")
 
 if __name__ == "__main__":
     main()

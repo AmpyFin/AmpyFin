@@ -5,7 +5,7 @@ from alpaca.trading.client import TradingClient
 from pymongo import MongoClient, errors
 
 from config import  mongo_url
-from helper_files.client_helper import get_latest_price, strategies
+from utilities.ranking_trading_utils import get_latest_price, strategies
 import subprocess
 import os
 

@@ -30,17 +30,20 @@ from control import (
     train_time_delta,
     train_time_delta_mode,
 )
-from helper_files.client_helper import get_ndaq_tickers, strategies
-from helper_files.train_client_helper import local_update_portfolio_values
-from TradeSim.utils import (
+from utilities.ranking_trading_utils import strategies
+import logging
+import pandas as pd
+from utilities.common_utils import (
+    get_ndaq_tickers,
     simulate_trading_day, 
     update_time_delta, 
     fetch_price_from_db, 
-    fetch_strategy_decisions
+    fetch_strategy_decisions,
+    local_update_portfolio_values
 )
 
 
-def train(logger):
+def train(logger: logging.Logger) -> None:
     """
     Execute the training phase of the trading simulator.
     
