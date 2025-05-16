@@ -3,7 +3,7 @@
 | Category | Badges |
 |----------|--------|
 | **Project** | [![Team Size](https://img.shields.io/badge/Team%20Size-6-blue)](https://github.com/yeonholee50/AmpyFin/graphs/contributors) [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-brightgreen)](https://github.com/yeonholee50/AmpyFin) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com) |
-| **CI/CD** | [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit) [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/yeonholee50/AmpyFin/pre-commit.yml?branch=main&label=linting)](https://github.com/yeonholee50/AmpyFin/actions/workflows/pre-commit.yml) |
+| **CI/CD** | [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit) [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/ampyfin/AmpyFin/pre-commit.yml?branch=main&label=linting)](https://github.com/yeonholee50/AmpyFin/actions/workflows/pre-commit.yml) |
 | **Quality** | [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![Quality Gate Status](https://img.shields.io/badge/Quality%20Gate-Passing-success)](https://github.com/yeonholee50/AmpyFin) |
 | **Package** | [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/) |
 | **Meta** | [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) |
