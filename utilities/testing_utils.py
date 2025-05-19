@@ -45,17 +45,13 @@ def plot_cash_growth(account_values):
 
 
 def generate_tear_sheet(account_values, filename):
-    # Create 'tearsheets' folder if it doesn't exist
-    if not os.path.exists("tearsheets"):
-        os.makedirs("tearsheets")
-
     # Fill missing values by linear interpolation
     account_values = account_values.interpolate(method="linear")
-
+    output_path = os.path.join('../artifacts', 'tearsheets', f"{filename}.html")
     # Generate quantstats report
     qs.reports.html(
         account_values.pct_change(),
         benchmark=benchmark_asset,
         title=f"Strategy vs {benchmark_asset}",
-        output=f"tearsheets/{filename}.html",
+        output=output_path,
     )

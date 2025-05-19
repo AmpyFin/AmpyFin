@@ -42,34 +42,27 @@ from utilities.common_utils import (
     local_update_portfolio_values
 )
 
+from utilities.logging import setup_logging
 
-def train(logger: logging.Logger) -> None:
+logger = setup_logging(__name__)
+
+
+def train() -> None:
     """
     Execute the training phase of the trading simulator.
     
     This function runs simulated trading for all strategies over the training period,
     evaluates their performance, and saves the results for later use in testing.
     
-    Args:
-        logger (logging.Logger): Logger instance for recording information.
-    
     Returns:
         None: Results are saved to disk and logged to W&B.
     """
-    # Create results directory if it doesn't exist
-    results_dir = "results"
-    if not os.path.exists(results_dir):
-        os.makedirs(results_dir)
-        logger.info(f"Created results directory: {results_dir}")
-
     # Initialize tickers if not provided
     global train_tickers
     if not train_tickers:
         train_tickers = get_ndaq_tickers()
-        logger.info(f"Fetched {len(train_tickers)} tickers.")
+        logger.info(f"Training with {len(train_tickers)} tickers")
 
-    logger.info(f"Ticker price history initialized for {len(train_tickers)} tickers.")
-    
     # Initialize trading simulator data structure for each strategy
     trading_simulator = {
         strategy.__name__: {
@@ -90,7 +83,7 @@ def train(logger: logging.Logger) -> None:
     # Set initial time delta from configuration
     time_delta = train_time_delta
 
-    logger.info("Trading simulator and points initialized.")
+    logger.info(f"Starting training from {train_period_start} to {train_period_end}")
     
     # Parse date strings to datetime objects
     start_date = pd.to_datetime(train_period_start, format="%Y-%m-%d")
@@ -98,15 +91,13 @@ def train(logger: logging.Logger) -> None:
     current_date = start_date
 
     # Fetch price data for the entire training period
-    logger.info(f"Fetching price data from {start_date} to {end_date}")
+    logger.info("Fetching historical price data and strategy decisions...")
     ticker_price_history = fetch_price_from_db(
         start_date - timedelta(days=1), end_date, train_tickers)
     ticker_price_history['Date'] = pd.to_datetime(ticker_price_history['Date'], format="%Y-%m-%d")
     ticker_price_history.set_index(['Ticker', 'Date'], inplace=True)
-    logger.info(f"Price data fetched successfully")
 
     # Preload all strategy decisions for the training period
-    logger.info("Preloading strategy decisions")
     precomputed_decisions = fetch_strategy_decisions( 
         start_date - timedelta(days=1),
         end_date,
@@ -115,7 +106,7 @@ def train(logger: logging.Logger) -> None:
     ) 
     precomputed_decisions['Date'] = pd.to_datetime(precomputed_decisions['Date'], format="%Y-%m-%d")
     precomputed_decisions.set_index(['Ticker', 'Date'], inplace=True)
-    logger.info("Strategy decisions preloaded")
+    logger.info("Data preparation complete")
 
     # Get unique trading dates from price history
     dates = ticker_price_history.index.get_level_values(1).unique()
@@ -124,12 +115,12 @@ def train(logger: logging.Logger) -> None:
     logger.info(f"Found {len(dates)} trading days in the period")
     
     # Main simulation loop
+    logger.info("Beginning simulation...")
     while current_date <= end_date:
-        logger.info(f"Processing date: {current_date.strftime('%Y-%m-%d')}")
+        date_str = current_date.strftime('%Y-%m-%d')
         
         # Skip non-trading days (weekends or holidays)
-        if current_date.strftime("%Y-%m-%d") not in dates:
-            logger.info(f"Skipping {current_date.strftime('%Y-%m-%d')} (weekend or missing data)")
+        if date_str not in dates:
             current_date += timedelta(days=1)
             continue
         
@@ -140,10 +131,10 @@ def train(logger: logging.Logger) -> None:
             precomputed_decisions.copy(),
             strategies,
             train_tickers,
-            logger,
             trading_simulator,
             points,
-            time_delta
+            time_delta,
+            logger
         )
         
         # Update portfolio values for all strategies
@@ -155,15 +146,12 @@ def train(logger: logging.Logger) -> None:
             logger
         )
 
-        # Log daily results
-        logger.info(f"Date: {current_date.strftime('%Y-%m-%d')}")
-        logger.info(f"Active count: {active_count}")
-        logger.info(f"time_delta: {time_delta}")
-        logger.info("-------------------------------------------------")
+        # Log weekly summary or at important milestones
+        if current_date.weekday() == 4 or current_date == end_date:  # Friday or last day
+            logger.info(f"Date: {date_str} | Active positions: {active_count} | Time delta: {time_delta}")
 
         # Update time delta according to specified mode
         time_delta = update_time_delta(time_delta, train_time_delta_mode)
-        logger.info(f"Updated time delta: {time_delta}")
 
         # Move to next day
         current_date += timedelta(days=1)
@@ -178,6 +166,7 @@ def train(logger: logging.Logger) -> None:
 
     # Save results to file
     result_filename = f"{config_dict['experiment_name']}.json"
+    results_dir = os.path.join('../artifacts', 'results')
     results_file_path = os.path.join(results_dir, result_filename)
     with open(results_file_path, "w") as json_file:
         json.dump(results, json_file, indent=4)
@@ -198,17 +187,13 @@ def train(logger: logging.Logger) -> None:
 
     # Format and log results
     top_portfolio_values_list = []
-    logger.info("Top 10 strategies with highest portfolio values:")
+    logger.info("Top 10 strategies by portfolio value:")
     for strategy, value in top_portfolio_values:
         top_portfolio_values_list.append([strategy, value["portfolio_value"]])
-        logger.info(f"{strategy} - {value['portfolio_value']}")
+        logger.info(f"{strategy}: ${value['portfolio_value']:.2f}")
 
     # Log to W&B
     wandb.log({"TRAIN_top_portfolio_values": top_portfolio_values_list})
     wandb.log({"TRAIN_top_points": top_points})
-
-    logger.info("Top 10 strategies with highest points:")
-    for strategy, value in top_points:
-        logger.info(f"{strategy} - {value}")
 
     logger.info("Training completed.")

@@ -1,5 +1,6 @@
 import heapq
 import sqlite3
+import logging
 from typing import Callable
 import pandas as pd
 import yfinance as yf
@@ -135,10 +136,10 @@ def simulate_trading_day(
     precomputed_decisions: pd.DataFrame,
     strategies: list[Callable],
     train_tickers: list[str],
-    logger,
     trading_simulator: dict,
     points: dict,
     time_delta: float,
+    logger: logging.Logger,
 ) -> tuple[dict, dict]:
     """Simulate trading for a single day using precomputed strategy decisions.
         Args:
@@ -151,11 +152,11 @@ def simulate_trading_day(
                 Columns should be the names of the strategies.
             strategies (list[Callable]): A list of trading strategy functions.
             train_tickers (list[str]): A list of ticker symbols to trade.
-            logger: Logger object for logging information.
             trading_simulator (dict): A dictionary containing the trading simulator state.
                 Includes account cash, holdings, and portfolio value for each strategy.
             points (dict): A dictionary to store points/rewards earned by each strategy.
             time_delta (float): The time delta used for calculating transaction costs or slippage.
+            logger: Logger object for logging information.
         Returns:
             tuple[dict, dict]: A tuple containing the updated trading simulator state and the updated points dictionary.
     """
@@ -176,7 +177,6 @@ def simulate_trading_day(
             for strategy in strategies:
                 strategy_name = strategy.__name__
 
-                
                 # Get precomputed strategy decision
                 num_action = precomputed_decisions.at[key, strategy_name]
                 # print(f"Precomputed decision for {ticker} on {current_date}: {num_action}")
@@ -214,7 +214,7 @@ def simulate_trading_day(
                     qty,
                     ticker,
                     current_price,
-                    strategy,
+                    strategy_name,
                     trading_simulator,
                     points,
                     time_delta,
@@ -230,7 +230,7 @@ def local_update_portfolio_values(
     strategies: list[Callable],
     trading_simulator: dict,
     ticker_price_history: pd.DataFrame,
-    logger,
+    logger: logging.Logger,
 ) -> tuple[int, dict]:
     """Updates the portfolio values for each strategy based on current holdings and market prices.
     Args:
@@ -412,7 +412,7 @@ def execute_trade(
     qty: int,
     ticker: str,
     current_price: float,
-    strategy: object,
+    strategy_name: str,
     trading_simulator: dict,
     points: dict,
     time_delta: float,
@@ -425,7 +425,7 @@ def execute_trade(
             qty (int): The quantity of the asset to trade.
             ticker (str): The ticker symbol of the asset.
             current_price (float): The current price of the asset.
-            strategy (object): The trading strategy being used.
+            strategy_name (str): The name of trading strategy being used.
             trading_simulator (dict): The trading simulator dictionary.
             points (float): The current points accumulated by the strategy.
             time_delta (timedelta): The time difference since the last trade.
@@ -440,39 +440,39 @@ def execute_trade(
         """
     if (
         decision == "buy"
-        and trading_simulator[strategy.__name__]["amount_cash"]
+        and trading_simulator[strategy_name]["amount_cash"]
         > train_rank_liquidity_limit
         and qty > 0
         and ((portfolio_qty + qty) * current_price) / total_portfolio_value
         < train_rank_asset_limit
     ):
-        trading_simulator[strategy.__name__]["amount_cash"] -= qty * current_price
+        trading_simulator[strategy_name]["amount_cash"] -= qty * current_price
 
-        if ticker in trading_simulator[strategy.__name__]["holdings"]:
-            trading_simulator[strategy.__name__]["holdings"][ticker]["quantity"] += qty
+        if ticker in trading_simulator[strategy_name]["holdings"]:
+            trading_simulator[strategy_name]["holdings"][ticker]["quantity"] += qty
         else:
-            trading_simulator[strategy.__name__]["holdings"][ticker] = {"quantity": qty}
+            trading_simulator[strategy_name]["holdings"][ticker] = {"quantity": qty}
 
-        trading_simulator[strategy.__name__]["holdings"][ticker][
+        trading_simulator[strategy_name]["holdings"][ticker][
             "price"
         ] = current_price
-        trading_simulator[strategy.__name__]["total_trades"] += 1
+        trading_simulator[strategy_name]["total_trades"] += 1
 
     elif (
         decision == "sell"
-        and trading_simulator[strategy.__name__]["holdings"]
+        and trading_simulator[strategy_name]["holdings"]
         .get(ticker, {})
         .get("quantity", 0)
         >= qty
     ):
-        trading_simulator[strategy.__name__]["amount_cash"] += qty * current_price
+        trading_simulator[strategy_name]["amount_cash"] += qty * current_price
         ratio = (
             current_price
-            / trading_simulator[strategy.__name__]["holdings"][ticker]["price"]
+            / trading_simulator[strategy_name]["holdings"][ticker]["price"]
         )
 
         points, trading_simulator = update_points_and_trades(
-            strategy,
+            strategy_name,
             ratio,
             current_price,
             trading_simulator,
@@ -486,10 +486,10 @@ def execute_trade(
 
 
 ######## LEVEL 2 DEPENDENCIES - For the functions mentioned above, their supporting functions are given below
-def update_points_and_trades(strategy: object, ratio: float, current_price: float, trading_simulator: dict, points: dict, time_delta: float, ticker: str, qty: int) -> tuple[dict, dict]:
+def update_points_and_trades(strategy_name: str, ratio: float, current_price: float, trading_simulator: dict, points: dict, time_delta: float, ticker: str, qty: int) -> tuple[dict, dict]:
     """Updates points and trade statistics based on the trading outcome.
         Args:
-            strategy (class): The trading strategy being evaluated.
+            strategy_name (class): The name of trading strategy being evaluated.
             ratio (float): The price change ratio (current_price / initial_price).
             current_price (float): The current price of the asset.
             trading_simulator (dict): A dictionary containing the trading simulation data.
@@ -507,53 +507,53 @@ def update_points_and_trades(strategy: object, ratio: float, current_price: floa
    
     if (
         current_price
-        > trading_simulator[strategy.__name__]["holdings"][ticker]["price"]
+        > trading_simulator[strategy_name]["holdings"][ticker]["price"]
     ):
-        trading_simulator[strategy.__name__]["successful_trades"] += 1
+        trading_simulator[strategy_name]["successful_trades"] += 1
         if ratio < train_profit_price_change_ratio_d1:
-            points[strategy.__name__] = (
-                points.get(strategy.__name__, 0)
+            points[strategy_name] = (
+                points.get(strategy_name, 0)
                 + time_delta * train_profit_profit_time_d1
             )
         elif ratio < train_profit_price_change_ratio_d2:
-            points[strategy.__name__] = (
-                points.get(strategy.__name__, 0)
+            points[strategy_name] = (
+                points.get(strategy_name, 0)
                 + time_delta * train_profit_profit_time_d2
             )
         else:
-            points[strategy.__name__] = (
-                points.get(strategy.__name__, 0)
+            points[strategy_name] = (
+                points.get(strategy_name, 0)
                 + time_delta * train_profit_profit_time_else
             )
     elif (
         current_price
-        == trading_simulator[strategy.__name__]["holdings"][ticker]["price"]
+        == trading_simulator[strategy_name]["holdings"][ticker]["price"]
     ):
-        trading_simulator[strategy.__name__]["neutral_trades"] += 1
+        trading_simulator[strategy_name]["neutral_trades"] += 1
     else:
-        trading_simulator[strategy.__name__]["failed_trades"] += 1
+        trading_simulator[strategy_name]["failed_trades"] += 1
         if ratio > train_loss_price_change_ratio_d1:
-            points[strategy.__name__] = (
-                points.get(strategy.__name__, 0)
+            points[strategy_name] = (
+                points.get(strategy_name, 0)
                 + -time_delta * train_loss_profit_time_d1
             )
         elif ratio > train_loss_price_change_ratio_d2:
-            points[strategy.__name__] = (
-                points.get(strategy.__name__, 0)
+            points[strategy_name] = (
+                points.get(strategy_name, 0)
                 + -time_delta * train_loss_profit_time_d2
             )
         else:
-            points[strategy.__name__] = (
-                points.get(strategy.__name__, 0)
+            points[strategy_name] = (
+                points.get(strategy_name, 0)
                 + -time_delta * train_loss_profit_time_else
             )
 
-    trading_simulator[strategy.__name__]["holdings"][ticker]["quantity"] -= qty
-    if trading_simulator[strategy.__name__]["holdings"][ticker]["quantity"] == 0:
-        del trading_simulator[strategy.__name__]["holdings"][ticker]
-    elif trading_simulator[strategy.__name__]["holdings"][ticker]["quantity"] < 0:
+    trading_simulator[strategy_name]["holdings"][ticker]["quantity"] -= qty
+    if trading_simulator[strategy_name]["holdings"][ticker]["quantity"] == 0:
+        del trading_simulator[strategy_name]["holdings"][ticker]
+    elif trading_simulator[strategy_name]["holdings"][ticker]["quantity"] < 0:
         raise Exception("Quantity cannot be negative")
-    trading_simulator[strategy.__name__]["total_trades"] += 1
+    trading_simulator[strategy_name]["total_trades"] += 1
 
     return points, trading_simulator
 
