@@ -4,7 +4,7 @@ from datetime import datetime
 from alpaca.trading.client import TradingClient
 from pymongo import MongoClient, errors
 
-from config import  mongo_url
+from config import  mongo_url, API_KEY, API_SECRET
 from utilities.ranking_trading_utils import get_latest_price, strategies
 import subprocess
 import os
