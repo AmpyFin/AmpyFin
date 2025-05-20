@@ -20,7 +20,7 @@ import wandb
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Local imports
-from config import mongo_url
+from config import MONGO_URL
 from variables import config_dict
 from control import mode
 from training import train
@@ -122,7 +122,7 @@ def main() -> None:
 
     # Initialize MongoDB client
     ca = certifi.where()
-    mongo_client = MongoClient(mongo_url, tlsCAFile=ca)
+    mongo_client = MongoClient(MONGO_URL, tlsCAFile=ca)
     logger.info("MongoDB client initialized")
     # Initialize W&B
     initialize_wandb()

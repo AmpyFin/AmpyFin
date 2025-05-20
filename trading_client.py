@@ -7,23 +7,19 @@ import certifi
 from alpaca.data.historical.stock import StockHistoricalDataClient
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide
-from polygon import RESTClient
 from pymongo import MongoClient
-from TradeSim.utils import weighted_majority_decision_and_median_quantity
+from utilities.common_utils import weighted_majority_decision_and_median_quantity, get_ndaq_tickers
 from config import (
     API_KEY,
     API_SECRET,
-    FINANCIAL_PREP_API_KEY,
-    POLYGON_API_KEY,
-    mongo_url,
+    MONGO_URL,
 )
 from control import suggestion_heap_limit, trade_asset_limit, trade_liquidity_limit
-from helper_files.client_helper import (
+from utilities.ranking_trading_utils import (
     get_latest_price,
-    get_ndaq_tickers,
     market_status,
     place_order,
-    strategies,
+    strategies
 )
 from strategies.talib_indicators import get_data, simulate_strategy
 
@@ -47,7 +43,7 @@ ca = certifi.where()
 
 
 def process_ticker(
-    ticker, client, trading_client, data_client, mongo_client, strategy_to_coefficient
+    ticker, trading_client, mongo_client, strategy_to_coefficient
 ):
     global buy_heap
     global suggestion_heap
@@ -220,20 +216,18 @@ def main():
     ndaq_tickers = []
     early_hour_first_iteration = True
     post_hour_first_iteration = True
-    client = RESTClient(api_key=POLYGON_API_KEY)
     trading_client = TradingClient(API_KEY, API_SECRET)
     data_client = StockHistoricalDataClient(API_KEY, API_SECRET)
-    mongo_client = MongoClient(mongo_url, tlsCAFile=ca)
+    mongo_client = MongoClient(MONGO_URL, tlsCAFile=ca)
     # db = mongo_client.trades
     # asset_collection = db.assets_quantities
     # limits_collection = db.assets_limit
     strategy_to_coefficient = {}
     sold = False
     while True:
-        client = RESTClient(api_key=POLYGON_API_KEY)
         trading_client = TradingClient(API_KEY, API_SECRET)
         data_client = StockHistoricalDataClient(API_KEY, API_SECRET)
-        status = market_status(client)  # Use the helper function for market status
+        status = market_status()  # Use the helper function for market status
         # db = mongo_client.trades
         # asset_collection = db.assets_quantities
         # limits_collection = db.assets_limit
@@ -247,7 +241,7 @@ def main():
         if status == "open":
             if not ndaq_tickers:
                 logging.info("Market is open")
-                ndaq_tickers = get_ndaq_tickers(mongo_client, FINANCIAL_PREP_API_KEY)
+                ndaq_tickers = get_ndaq_tickers()
                 sim_db = mongo_client.trading_simulator
                 rank_collection = sim_db.rank
                 r_t_c_collection = sim_db.rank_to_coefficient
@@ -294,9 +288,7 @@ def main():
                     target=process_ticker,
                     args=(
                         ticker,
-                        client,
                         trading_client,
-                        data_client,
                         mongo_client,
                         strategy_to_coefficient,
                     ),
@@ -368,7 +360,7 @@ def main():
 
         elif status == "early_hours":
             if early_hour_first_iteration:
-                ndaq_tickers = get_ndaq_tickers(mongo_client, FINANCIAL_PREP_API_KEY)
+                ndaq_tickers = get_ndaq_tickers()
                 sim_db = mongo_client.trading_simulator
                 rank_collection = sim_db.rank
                 r_t_c_collection = sim_db.rank_to_coefficient

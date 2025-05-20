@@ -6,8 +6,7 @@ from datetime import datetime
 
 import certifi
 from pymongo import MongoClient
-from TradeSim.utils import update_ranks
-from config import mongo_url
+from config import MONGO_URL
 from control import (
     loss_price_change_ratio_d1,
     loss_price_change_ratio_d2,
@@ -26,7 +25,8 @@ from control import (
     time_delta_mode,
     time_delta_multiplicative,
 )
-from helper_files.client_helper import get_latest_price, get_ndaq_tickers, strategies
+from utilities.ranking_trading_utils import get_latest_price, strategies
+from utilities.common_utils import get_ndaq_tickers
 from strategies.talib_indicators import get_data, simulate_strategy
 
 ca = certifi.where()
@@ -41,6 +41,72 @@ logging.basicConfig(
     ],
 )
 
+def update_ranks(client: MongoClient) -> None:
+    """Updates the ranking of trading strategies based on their performance.
+        This function calculates a score for each strategy based on its total points,
+        portfolio value, successful trades, and failed trades. It then ranks the
+        strategies based on this score and stores the ranking in the 'rank' collection.
+        It also clears the historical database after updating the ranks.
+        Args:
+            client (MongoClient): A MongoClient instance connected to the MongoDB database.
+                The client should have access to the 'trading_simulator' and
+                'HistoricalDatabase' databases.
+        Returns:
+            None. The function updates the 'rank' collection in the
+            'trading_simulator' database and clears the 'HistoricalDatabase' database.
+        Raises:
+            pymongo.errors.PyMongoError: If there is an error interacting with the
+                MongoDB database.
+
+    """
+    db = client.trading_simulator
+    points_collection = db.points_tally
+    rank_collection = db.rank
+    algo_holdings = db.algorithm_holdings
+   
+    rank_collection.delete_many({})
+  
+    q = []
+    for strategy_doc in algo_holdings.find({}):
+       
+        strategy_name = strategy_doc["strategy"]
+        if strategy_name == "test" or strategy_name == "test_strategy":
+            continue
+        if points_collection.find_one({"strategy": strategy_name})["total_points"] > 0:
+            heapq.heappush(
+                q,
+                (
+                    points_collection.find_one({"strategy": strategy_name})[
+                        "total_points"
+                    ]
+                    * 2
+                    + (strategy_doc["portfolio_value"]),
+                    strategy_doc["successful_trades"] - strategy_doc["failed_trades"],
+                    strategy_doc["amount_cash"],
+                    strategy_doc["strategy"],
+                ),
+            )
+        else:
+            heapq.heappush(
+                q,
+                (
+                    strategy_doc["portfolio_value"],
+                    strategy_doc["successful_trades"] - strategy_doc["failed_trades"],
+                    strategy_doc["amount_cash"],
+                    strategy_doc["strategy"],
+                ),
+            )
+    rank = 1
+    while q:
+        _, _, _, strategy_name = heapq.heappop(q)
+        rank_collection.insert_one({"strategy": strategy_name, "rank": rank})
+        rank += 1
+
+    db = client.HistoricalDatabase
+    collection = db.HistoricalDatabase
+    collection.delete_many({})
+    print("Successfully updated ranks")
+    print("Successfully deleted historical database")
 
 def process_ticker(ticker, mongo_client):
     try:
@@ -343,7 +409,7 @@ def main():
     post_market_hour_first_iteration = True
 
     while True:
-        mongo_client = MongoClient(mongo_url, tlsCAFile=ca)
+        mongo_client = MongoClient(MONGO_URL, tlsCAFile=ca)
 
         status = mongo_client.market_data.market_status.find_one({})["market_status"]
 

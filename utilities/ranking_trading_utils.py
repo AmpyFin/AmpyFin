@@ -312,27 +312,19 @@ strategies = (
 
 
 def market_status() -> str:
-    """Determines the current status of the market (open, closed, or early hours).
-
-        The function checks the NYSE calendar to determine if the market is open,
-        closed, or in the early trading hours (pre-market).
-
-        Returns:
-            str: 'open' if the market is currently open, 'closed' if the market is
-                currently closed, and 'early_hours' if it is currently in the
-                pre-market trading hours.
-    """
-    # Get the NYSE calendar
+    """Determines the current status of the market (open, closed, or early hours)."""
     nyse = mcal.get_calendar('NYSE')
-    # Current time in Eastern
     now = pd.Timestamp.now(tz='US/Eastern')
-    # Today's schedule
     sched = nyse.schedule(start_date=now.date(), end_date=now.date())
+
     if sched.empty:
         return 'closed'
-    open_time = sched.at[now.date(), 'market_open']
-    close_time = sched.at[now.date(), 'market_close']
-    pre_open = open_time - pd.Timedelta(hours=5.5)  # 4:00 ET
+
+    today_schedule = sched.iloc[0]  # Safe access without worrying about index tz mismatch
+    open_time = today_schedule['market_open']
+    close_time = today_schedule['market_close']
+    pre_open = open_time - pd.Timedelta(hours=5.5)
+
     if open_time <= now <= close_time:
         return 'open'
     if pre_open <= now < open_time:
@@ -357,7 +349,7 @@ def get_latest_price(ticker: str) -> float | None:
 
     """
     try:
-        ticker_yahoo = yf.Ticker(ticker, session=limiter)
+        ticker_yahoo = yf.Ticker(ticker)
         data = ticker_yahoo.history()
 
         return round(data["Close"].iloc[-1], 2)

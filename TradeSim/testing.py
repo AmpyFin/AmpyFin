@@ -10,19 +10,17 @@ This module handles the testing phase of the trading simulation, including:
 - Calculating and reporting performance metrics
 """
 
-import logging
 import heapq
 import json
 import os
 from datetime import timedelta
 import pandas as pd
-import certifi
+
 from pymongo import MongoClient
 import wandb
 
 # Local imports
 from variables import config_dict
-from config import mongo_url
 from control import (
     benchmark_asset,
     test_period_end,

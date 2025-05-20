@@ -6,7 +6,7 @@ import certifi
 from pymongo import MongoClient
 from variables import config_dict
 
-from config import mongo_url
+from config import MONGO_URL
 from control import experiment_name
 from utilities.common_utils import update_ranks
 
@@ -28,7 +28,7 @@ def push():
         time_delta = results["time_delta"]
 
     # Push the trading simulator and points to the database
-    mongo_client = MongoClient(mongo_url, tlsCAFile=ca)
+    mongo_client = MongoClient(MONGO_URL, tlsCAFile=ca)
     db = mongo_client.trading_simulator
     holdings_collection = db.algorithm_holdings
     points_collection = db.points_tally
