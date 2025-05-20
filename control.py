@@ -45,7 +45,8 @@ The default for mode is live to protect against accidental training
 benchmark asset is what benchmark you want to compare to - typically SPY, QQQ, DOW, or NDAQ.
 """
 
-mode = "test"
+
+mode = "train"
 
 benchmark_asset = "QQQ"
 """
@@ -60,10 +61,9 @@ so please understand the time it takes to train.
 """
 
 train_period_start = "2024-01-01"
-train_period_end = "2024-03-15"
-test_period_start = "2024-03-15"
-test_period_end = "2024-04-30"
-
+train_period_end = "2024-01-15"
+test_period_start = "2024-01-16"
+test_period_end = "2025-01-30"
 
 train_tickers = ['AAPL', 'MSFT', 'GOOGL']
 
@@ -212,7 +212,7 @@ trade_liquidity_limit = 15000
 trade_asset_limit to portfolio is how much asset you are allowed to hold in comparison to portfolio value for the trading client
 The lower this number, the more diversification you will have in your portfolio. The higher the number,
 the less diversification you will have but it will be buying more selective assets.
-Thsi will also be reflected in Ta-Lib for suggestion and could also affect ranking as well in terms of asset_limit
+This will also be reflected in Ta-Lib for suggestion and could also affect ranking as well in terms of asset_limit
 """
 trade_asset_limit = 0.1
 

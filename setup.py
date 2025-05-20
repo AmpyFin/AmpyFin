@@ -4,7 +4,7 @@ from datetime import datetime
 from alpaca.trading.client import TradingClient
 from pymongo import MongoClient, errors
 
-from config import  mongo_url
+from config import  mongo_url, API_KEY, API_SECRET
 from utilities.ranking_trading_utils import get_latest_price, strategies
 import subprocess
 import os
@@ -322,6 +322,18 @@ def initialize_dbs():
     if os.path.exists(price_data_db_path):
         os.remove(price_data_db_path)
         print(f"Removed existing database: {price_data_db_path}")
+    else:
+        print(f"{price_data_db_path} does not exist. Creating a new database...")
+        # Logic to create a new directory if it doesn't exist
+        price_data_dir = os.path.dirname(price_data_db_path)
+        if not os.path.exists(price_data_dir):
+            os.makedirs(price_data_dir)
+            print(f"Created new directory: {price_data_dir}")
+
+        # Logic to create a new database file if it doesn't exist
+        with open(price_data_db_path, 'w') as db_file:
+            db_file.write("")  # Create an empty file
+        print(f"Created new database: {price_data_db_path}")
 
     # Call the first script: store_price_data.py
     print("Calling store_price_data.py...")
@@ -341,6 +353,18 @@ def initialize_dbs():
     if os.path.exists(strategy_decisions_db_path):
         os.remove(strategy_decisions_db_path)
         print(f"Removed existing database: {strategy_decisions_db_path}")
+    else: 
+        print(f"{strategy_decisions_db_path} does not exist. Creating a new database...")
+        # Logic to create a new directory if it doesn't exist
+        price_data_dir = os.path.dirname(price_data_db_path)
+        if not os.path.exists(price_data_dir):
+            os.makedirs(price_data_dir)
+            print(f"Created new directory: {price_data_dir}")
+            
+        # Logic to create a new database if it doesn't exist
+        with open(strategy_decisions_db_path, 'w') as db_file:
+            db_file.write("") # Create an empty file
+        print(f"Created new database: {strategy_decisions_db_path}")
 
     # Call the second script: compute_store_strategy_decisions.py
     print("Calling compute_store_strategy_decisions.py...")
