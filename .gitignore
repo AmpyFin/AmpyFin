@@ -16,3 +16,4 @@
 
 # Ignore generated SQLite dbs
 *.db
+/artifacts/
