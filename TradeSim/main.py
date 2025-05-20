@@ -68,7 +68,6 @@ def initialize_wandb() -> None:
         name=config_dict['experiment_name'],
     )
 
-
 def _shutdown(signum=None, frame=None) -> None:
     """
     Terminate all child processes, then exit.
@@ -125,7 +124,6 @@ def main() -> None:
     ca = certifi.where()
     mongo_client = MongoClient(mongo_url, tlsCAFile=ca)
     logger.info("MongoDB client initialized")
-
     # Initialize W&B
     initialize_wandb()
     logger.info("Weights & Biases initialized")
@@ -147,7 +145,6 @@ def main() -> None:
         sys.exit(1)
 
     logger.info("Application completed successfully")
-
 
 if __name__ == '__main__':
     main()

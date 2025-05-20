@@ -265,11 +265,12 @@ def test(mongo_client: MongoClient) -> None:
     
     # Fetch price data for the entire testing period
     logger.info("Fetching historical price data and strategy decisions...")
+
     ticker_price_history = fetch_price_from_db(
         start_date - timedelta(days=1), end_date, tickers)
     ticker_price_history['Date'] = pd.to_datetime(ticker_price_history['Date'], format="%Y-%m-%d")
     ticker_price_history.set_index(['Ticker', 'Date'], inplace=True)
-
+    
     # Preload strategy decisions for the testing period
     precomputed_decisions = fetch_strategy_decisions( 
         start_date - timedelta(days=1),
@@ -279,6 +280,7 @@ def test(mongo_client: MongoClient) -> None:
     ) 
     precomputed_decisions['Date'] = pd.to_datetime(precomputed_decisions['Date'], format="%Y-%m-%d")
     precomputed_decisions.set_index(['Ticker', 'Date'], inplace=True)
+
     logger.info("Data preparation complete")
 
     # Get unique trading dates from price history
@@ -294,6 +296,7 @@ def test(mongo_client: MongoClient) -> None:
         
         # Skip non-trading days (weekends or holidays)
         if date_str not in dates:
+
             current_date += timedelta(days=1)
             continue
 
@@ -457,9 +460,12 @@ def test(mongo_client: MongoClient) -> None:
         # Update strategy rankings
         rank = update_strategy_ranks(strategies, points, trading_simulator)
 
-        # Log weekly summary or at important milestones
-        if current_date.weekday() == 4 or current_date == end_date:  # Friday or last day
-            logger.info(f"Date: {date_str} | Portfolio: ${account['total_portfolio_value']:,.2f} | Cash: ${account['cash']:,.2f} | Holdings: {len(account['holdings'])}")
+        # Log daily results
+        logger.info("-------------------------------------------------")
+        logger.info(f"Account Cash: ${account['cash']: ,.2f}")
+        logger.info(f"Total Portfolio Value: ${account['total_portfolio_value']: ,.2f}")
+        logger.info(f"Active Count: {active_count}")
+        logger.info("-------------------------------------------------")
 
         # Move to next day
         current_date += timedelta(days=1)

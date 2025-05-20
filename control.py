@@ -45,6 +45,7 @@ The default for mode is live to protect against accidental training
 benchmark asset is what benchmark you want to compare to - typically SPY, QQQ, DOW, or NDAQ.
 """
 
+
 mode = "train"
 
 benchmark_asset = "QQQ"
@@ -63,7 +64,6 @@ train_period_start = "2024-01-01"
 train_period_end = "2024-01-15"
 test_period_start = "2024-01-16"
 test_period_end = "2025-01-30"
-
 
 train_tickers = ['AAPL', 'MSFT', 'GOOGL']
 

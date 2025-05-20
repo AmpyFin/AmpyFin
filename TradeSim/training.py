@@ -106,6 +106,7 @@ def train() -> None:
     ) 
     precomputed_decisions['Date'] = pd.to_datetime(precomputed_decisions['Date'], format="%Y-%m-%d")
     precomputed_decisions.set_index(['Ticker', 'Date'], inplace=True)
+
     logger.info("Data preparation complete")
 
     # Get unique trading dates from price history
@@ -146,9 +147,11 @@ def train() -> None:
             logger
         )
 
-        # Log weekly summary or at important milestones
-        if current_date.weekday() == 4 or current_date == end_date:  # Friday or last day
-            logger.info(f"Date: {date_str} | Active positions: {active_count} | Time delta: {time_delta}")
+        # Log daily results
+        logger.info(f"Date: {current_date.strftime('%Y-%m-%d')}")
+        logger.info(f"Active count: {active_count}")
+        logger.info(f"time_delta: {time_delta}")
+        logger.info("-------------------------------------------------")
 
         # Update time delta according to specified mode
         time_delta = update_time_delta(time_delta, train_time_delta_mode)
@@ -195,5 +198,9 @@ def train() -> None:
     # Log to W&B
     wandb.log({"TRAIN_top_portfolio_values": top_portfolio_values_list})
     wandb.log({"TRAIN_top_points": top_points})
+
+    logger.info("Top 10 strategies with highest points:")
+    for strategy, value in top_points:
+        logger.info(f"{strategy} - {value}")
 
     logger.info("Training completed.")

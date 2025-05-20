@@ -136,6 +136,7 @@ def simulate_trading_day(
     precomputed_decisions: pd.DataFrame,
     strategies: list[Callable],
     train_tickers: list[str],
+
     trading_simulator: dict,
     points: dict,
     time_delta: float,
@@ -176,7 +177,7 @@ def simulate_trading_day(
             # Get precomputed strategy decisions for the current date
             for strategy in strategies:
                 strategy_name = strategy.__name__
-
+                
                 # Get precomputed strategy decision
                 num_action = precomputed_decisions.at[key, strategy_name]
                 # print(f"Precomputed decision for {ticker} on {current_date}: {num_action}")
