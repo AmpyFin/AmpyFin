@@ -136,7 +136,6 @@ def simulate_trading_day(
     precomputed_decisions: pd.DataFrame,
     strategies: list[Callable],
     train_tickers: list[str],
-
     trading_simulator: dict,
     points: dict,
     time_delta: float,
@@ -171,7 +170,7 @@ def simulate_trading_day(
             # print(f"Current price for {ticker} on {current_date}: {current_price}")
         else:
             current_price = None
-            print(f'No price for {ticker} on {current_date}. Skipping.')
+            logger.warning(f'No price for {ticker} on {current_date}. Skipping.')
             continue
         if current_price:
             # Get precomputed strategy decisions for the current date

@@ -65,7 +65,7 @@ train_period_end = "2024-01-15"
 test_period_start = "2024-01-16"
 test_period_end = "2025-01-30"
 
-train_tickers = ['AAPL', 'MSFT', 'GOOGL']
+train_tickers = []
 
 """
 train_time_delta_mode can be multiplicative, additive, or balanced.

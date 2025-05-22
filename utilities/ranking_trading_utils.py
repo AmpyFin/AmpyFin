@@ -1,3 +1,4 @@
+import heapq
 import json
 import logging
 import sys
@@ -300,14 +301,14 @@ statistical_functions = [
 ]
 
 strategies = (
-    # overlap_studies
-    # + momentum_indicators
-     volume_indicators
-    # + cycle_indicators
-    # + price_transforms
-    # + volatility_indicators
-    # + pattern_recognition
-    # + statistical_functions
+    overlap_studies
+    + momentum_indicators
+    + volume_indicators
+    + cycle_indicators
+    + price_transforms
+    + volatility_indicators
+    + pattern_recognition
+    + statistical_functions
 )
 
 
@@ -416,3 +417,72 @@ def place_order(trading_client: object, symbol: str, side: OrderSide, quantity: 
             limits.delete_one({"symbol": symbol})
 
     return order
+
+def update_ranks(client: MongoClient, logger: logging.Logger) -> None:
+    """Updates the ranking of trading strategies based on their performance.
+        This function calculates a score for each strategy based on its total points,
+        portfolio value, successful trades, and failed trades. It then ranks the
+        strategies based on this score and stores the ranking in the 'rank' collection.
+        It also clears the historical database after updating the ranks.
+        Args:
+            client (MongoClient): A MongoClient instance connected to the MongoDB database.
+                The client should have access to the 'trading_simulator' and
+                'HistoricalDatabase' databases.
+        Returns:
+            None. The function updates the 'rank' collection in the
+            'trading_simulator' database and clears the 'HistoricalDatabase' database.
+        Raises:
+            pymongo.errors.PyMongoError: If there is an error interacting with the
+                MongoDB database.
+
+    """
+    pts_coll = client.trading_simulator.points_tally
+    rank_coll = client.trading_simulator.rank
+    holdings_coll = client.trading_simulator.algorithm_holdings
+   
+    # Clear existing ranks
+    rank_coll.delete_many({})
+    
+    # Clear historical database
+    client.HistoricalDatabase.HistoricalDatabase.delete_many({})
+
+    heap = []
+    for doc in holdings_coll.find({}):
+        strategy_name = doc["strategy"]
+
+        # Skip test strategies
+        if strategy_name in ["test", "test_strategy"]:
+            continue
+        
+        pts_doc = pts_coll.find_one({"strategy": strategy_name})
+        if not pts_doc:
+            logger.warning(f"No points document for strategy {strategy_name}")
+            total_points = 0
+        else:
+            total_points = pts_doc["total_points"]
+        
+        performance_diff = doc.get("successful_trades", 0) - doc.get("failed_trades", 0)
+        
+        if total_points > 0:
+            # Good performing strategies: use total_points*2 + portfolio_value as score
+            score = (total_points * 2 + doc["portfolio_value"], 
+                    performance_diff,
+                    doc["amount_cash"],
+                    strategy_name)
+        else:
+            # Poor performing strategies: use portfolio_value as score
+            score = (doc["portfolio_value"],
+                    performance_diff,
+                    doc["amount_cash"],
+                    strategy_name)
+                    
+        heapq.heappush(heap, score)
+
+    rank = 1
+    while heap:
+        _, _, _, strategy = heapq.heappop(heap)
+        rank_coll.insert_one({"strategy": strategy, "rank": rank})
+        rank += 1
+        
+    logger.info("Successfully updated ranks")
+    logger.info("Successfully cleared historical database")

@@ -12,11 +12,7 @@ from pymongo import MongoClient
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utilities.common_utils import weighted_majority_decision_and_median_quantity, get_ndaq_tickers
-from config import (
-    API_KEY,
-    API_SECRET,
-    MONGO_URL,
-)
+from config import API_KEY, API_SECRET, MONGO_URL
 
 from control import suggestion_heap_limit, trade_asset_limit, trade_liquidity_limit, train_tickers
 from utilities.ranking_trading_utils import ( 
@@ -35,10 +31,19 @@ sold = False
 
 ca = certifi.where()
 
-
-def process_ticker(
-    ticker, trading_client, mongo_client, indicator_periods, strategy_to_coefficient
-):  
+def process_ticker(ticker: str, trading_client: TradingClient, mongo_client: MongoClient, indicator_periods: dict, strategy_to_coefficient: dict) -> None:  
+    """Processes a single ticker symbol, making trading decisions based on strategy evaluations and risk management.
+        Args:
+            ticker (str): The ticker symbol to process.
+            trading_client ( Alpaca Trade API): The Alpaca trading client for placing orders.
+            mongo_client (MongoClient): The MongoDB client for accessing historical data and storing trade information.
+            indicator_periods (dict): A dictionary mapping strategy names to the period of historical data required.
+            strategy_to_coefficient (dict): A dictionary mapping strategy names to their weighting coefficient.
+        Returns:
+            None
+        Raises:
+            Exception: If there is an error fetching the price or historical data.
+        """
     logger.info(f"Processing ticker: {ticker}")
     global buy_heap, suggestion_heap, sold
     if sold is True:
@@ -172,9 +177,31 @@ def process_ticker(
     else:
         logger.info(f"Holding for {ticker}, no action taken.")
 
+def execute_buy_orders(mongo_client: MongoClient, trading_client: TradingClient) -> None:
+    """Executes buy orders from the buy_heap and suggestion_heap.
 
+        This function iterates through the buy_heap and suggestion_heap, placing buy orders
+        as long as there is sufficient cash in the account and the 'sold' flag is not set.
+        It uses the Alpaca trading client to place the orders and logs the execution.
 
-def execute_buy_orders(mongo_client, trading_client):
+        Args:
+            mongo_client: A MongoDB client instance for database operations.
+            trading_client: An Alpaca trading client instance for placing orders.
+
+        Returns:
+            None.
+
+        Raises:
+            Exception: If an error occurs during the execution of a buy order.
+                The error is logged, and the loop continues.
+
+        Notes:
+            - The function uses global variables buy_heap, suggestion_heap, and sold.
+            - It pauses for 5 seconds after each order to allow the order to propagate and
+              ensure an accurate cash balance.
+            - After processing all orders, it clears the buy_heap and suggestion_heap and
+              resets the sold flag.
+    """
     logger.info("Executing buy orders from heaps.")
 
     global buy_heap, suggestion_heap, sold
@@ -222,7 +249,20 @@ def execute_buy_orders(mongo_client, trading_client):
     suggestion_heap = []
     sold = False
 
-def load_indicator_periods(mongo_client):
+def load_indicator_periods(mongo_client: MongoClient) -> dict:
+    """Loads indicator periods from MongoDB.
+
+        Connects to the MongoDB database, retrieves indicator documents,
+        and extracts the indicator name and ideal period for each.
+
+        Args:
+            mongo_client: A MongoDB client instance connected to the database.
+
+        Returns:
+            A dictionary where keys are indicator names and values are their
+            corresponding ideal periods.
+            For example: {'SMA': 20, 'RSI': 14}
+        """
     coll = mongo_client.IndicatorsDatabase.Indicators
     # one query for all docs
     return {
@@ -230,10 +270,25 @@ def load_indicator_periods(mongo_client):
         for doc in coll.find({}, {"indicator": 1, "ideal_period": 1})
     }
 
-def initialize_strategy_coefficients(mongo_client):
-    """
-    Initialize strategy coefficients from MongoDB.
-    """
+def initialize_strategy_coefficients(mongo_client: MongoClient) -> dict:
+    """Initializes a dictionary mapping strategy names to their corresponding coefficients.
+
+        This function retrieves the rank associated with each strategy from the 'rank' collection
+        in the MongoDB database, and then uses that rank to fetch the corresponding coefficient
+        from the 'rank_to_coefficient' collection.  The strategy name and coefficient are then
+        stored as a key-value pair in the returned dictionary.
+
+        Args:
+                mongo_client: A PyMongo MongoClient instance connected to the MongoDB database.
+                        The database is expected to have collections named 'rank' and 'rank_to_coefficient'.
+
+        Returns:
+                A dictionary where keys are strategy names (strings) and values are their
+                corresponding coefficients (numbers).
+
+        Raises:
+                KeyError: If a strategy's rank or coefficient cannot be found in the database.
+        """
     strategy_to_coefficient = {}
     sim_db = mongo_client.trading_simulator
     rank_collection = sim_db.rank
@@ -246,10 +301,26 @@ def initialize_strategy_coefficients(mongo_client):
 
     return strategy_to_coefficient
 
-def process_market_open(mongo_client):
+def process_market_open(mongo_client: MongoClient) -> None:
+    """Processes the market open, including ticker processing and order execution.
+        This function performs the following steps:
+        1. Logs that the market is open and processing tickers.
+        2. If there are no tickers to train, it pulls NASDAQ tickers.
+        3. Loads indicator periods and initializes strategy coefficients from MongoDB.
+        4. Initializes a TradingClient.
+        5. Initializes empty lists for buy_heap and suggestion_heap, and sets sold to False.
+        6. Iterates through each ticker in train_tickers, processing it and pausing briefly.
+        7. Executes buy orders.
+        8. Sleeps for 30 seconds.
+        Args:
+            mongo_client: A MongoDB client instance for database interactions.
+        Returns:
+            None.
+        """
     logger.info("Market is open. Processing tickers.")
     global buy_heap, suggestion_heap, sold, train_tickers
     if not train_tickers:
+        logger.info("No tickers to train. Pulling NASDAQ tickers.")
         train_tickers = get_ndaq_tickers()
     
     indicator_periods = load_indicator_periods(mongo_client)
@@ -285,16 +356,18 @@ def process_market_closed():
     time.sleep(30)
 
 def main():
-    """
-    Main function to control the workflow based on the market's status.
-    """
+    """Main function to run the trading simulation.
 
+        This function continuously checks the market status and performs actions
+        based on whether the market is open, in early hours, or closed. It also
+        handles exceptions and logs any errors that occur.
+
+        Raises:
+            Exception: If an unexpected error occurs in the main trading loop.
+        """
     logger.info("Trading mode is live.")
-  
-    trading_client = TradingClient(API_KEY, API_SECRET)
     mongo_client = MongoClient(MONGO_URL, tlsCAFile=ca)
-   
-    strategy_to_coefficient = {}
+
     while True:
         try:
             status = market_status()

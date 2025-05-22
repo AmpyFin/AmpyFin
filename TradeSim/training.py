@@ -92,8 +92,7 @@ def train() -> None:
 
     # Fetch price data for the entire training period
     logger.info("Fetching historical price data and strategy decisions...")
-    ticker_price_history = fetch_price_from_db(
-        start_date - timedelta(days=1), end_date, train_tickers)
+    ticker_price_history = fetch_price_from_db(start_date - timedelta(days=1), end_date, train_tickers)
     ticker_price_history['Date'] = pd.to_datetime(ticker_price_history['Date'], format="%Y-%m-%d")
     ticker_price_history.set_index(['Ticker', 'Date'], inplace=True)
 

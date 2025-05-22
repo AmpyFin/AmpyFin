@@ -13,16 +13,34 @@ _FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d - %(message)s"
 _DATEFMT = "%Y-%m-%d %H:%M:%S"
 
 
+import sys
+from pathlib import Path
+import logging
+
+# … your existing constants …
+
 def _build_file_handler(module_basename: str, level: int) -> logging.Handler:
-    """Return a :class:`logging.FileHandler` that writes to the correct file."""
-    filename_map = {"__main__": "main.log", "training": "training.log", "testing": "testing.log"}
-    log_filename = filename_map.get(module_basename, "other.log")
-    filepath = LOG_DIR / log_filename
+    """
+    Return a FileHandler that writes to `<caller>.log`.
+    
+    If invoked as a script (module_basename == "__main__"), we grab
+    the script’s filename from sys.argv[0].
+    """
+    if module_basename == "__main__":
+        # sys.argv[0] might be "trading.py" or a full path; take the stem
+        name = Path(sys.argv[0]).stem or "main"
+    else:
+        # strip any leading underscores so "_foo" → "foo"
+        name = module_basename.lstrip("_")
+    filename = f"{name}.log"
+    filepath = LOG_DIR / filename
 
     handler = logging.FileHandler(filepath, encoding="utf-8")
     handler.setLevel(level)
     handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATEFMT))
     return handler
+
+
 
 
 def _build_console_handler(level: int) -> logging.Handler:

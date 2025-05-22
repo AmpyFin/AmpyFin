@@ -68,51 +68,6 @@ def initialize_wandb() -> None:
         name=config_dict['experiment_name'],
     )
 
-def _shutdown(signum=None, frame=None) -> None:
-    """
-    Terminate all child processes, then exit.
-    """
-    logging.info("Shutting down live mode processes…")
-    for p in _procs:
-        if p.poll() is None:
-            logging.info(f" → terminating PID {p.pid}")
-            p.terminate()
-    time.sleep(1)
-    for p in _procs:
-        if p.poll() is None:
-            logging.warning(f" → killing PID {p.pid}")
-            p.kill()
-    sys.exit(0)
-
-
-def run_live(logger: logging.Logger) -> None:
-    """
-    Spawn trading.py and ranking.py as standalone, long‑running services.
-    """
-    signal.signal(signal.SIGINT, _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
-
-    scripts = [
-        [sys.executable, os.path.join(PATHS['base'], 'TradeSim', 'trading.py')],
-        [sys.executable, os.path.join(PATHS['base'], 'TradeSim', 'ranking.py')],
-    ]
-    for cmd in scripts:
-        logger.info(f"Starting subprocess: {' '.join(cmd)}")
-        p = subprocess.Popen(cmd)
-        _procs.append(p)
-
-    logger.info("Both trading.py and ranking.py started. Entering monitor loop.")
-    try:
-        while True:
-            for p in _procs:
-                if p.poll() is not None:
-                    logger.error(f"Child PID {p.pid} exited (code {p.returncode}); shutting down.")
-                    _shutdown()
-            time.sleep(5)
-    except Exception:
-        _shutdown()
-
-
 def main() -> None:
     """
     Main function that initializes the application and runs the selected mode.
@@ -134,9 +89,6 @@ def main() -> None:
     elif mode == 'test':
         logger.info("Running in testing mode")
         test(mongo_client=mongo_client)
-    elif mode == 'live':
-        logger.info("Running in live mode (spawning trading & ranking)")
-        run_live(logger)
     elif mode == 'push':
         logger.warning("Push mode is not implemented yet")
         sys.exit(1)

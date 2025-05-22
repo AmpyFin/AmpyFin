@@ -52,7 +52,6 @@ from utilities.common_utils import (
 )
 
 from utilities.logging import setup_logging
-
 logger = setup_logging(__name__)
 
 def initialize_test_account() -> dict:

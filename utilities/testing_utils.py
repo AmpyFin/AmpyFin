@@ -3,8 +3,21 @@ import numpy as np
 import quantstats as qs
 from control import benchmark_asset
 import os
+import pandas as pd
 
-def calculate_metrics(account_values):
+def calculate_metrics(account_values: pd.Series) -> dict:
+    """Calculates various performance metrics for a given account value series.
+
+        Args:
+            account_values (pd.Series): A pandas Series representing the account values over time.
+
+        Returns:
+            dict: A dictionary containing the calculated metrics:
+                - sharpe_ratio (float): The Sharpe Ratio.
+                - sortino_ratio (float): The Sortino Ratio.
+                - max_drawdown (float): The Max Drawdown.
+                - r_ratio (float): The R Ratio (mean return / standard deviation).
+        """
     # Fill non-leading NA values with the previous value using 'ffill' (forward fill)
     account_values_filled = account_values.ffill()
     returns = account_values_filled.pct_change().dropna()
@@ -44,7 +57,16 @@ def plot_cash_growth(account_values):
     plt.show()
 
 
-def generate_tear_sheet(account_values, filename):
+def generate_tear_sheet(account_values: pd.Series, filename: str) -> None:
+    """Generates a tear sheet for the given account values.
+
+        Args:
+            account_values (pd.Series): A pandas Series containing the account values over time.
+            filename (str): The name of the file to save the tear sheet to.
+
+        Returns:
+            None
+        """
     # Fill missing values by linear interpolation
     account_values = account_values.interpolate(method="linear")
     output_path = os.path.join('../artifacts', 'tearsheets', f"{filename}.html")
