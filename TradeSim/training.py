@@ -30,8 +30,8 @@ from control import (
     train_time_delta,
     train_time_delta_mode,
 )
+# from strategies.categorise_talib_indicators_vect import strategies
 from utilities.ranking_trading_utils import strategies
-import logging
 import pandas as pd
 from utilities.common_utils import (
     get_ndaq_tickers,

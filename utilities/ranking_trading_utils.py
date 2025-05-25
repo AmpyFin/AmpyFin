@@ -106,7 +106,7 @@ from strategies.talib_indicators import (
     HT_TRENDMODE_indicator,
     KAMA_indicator,
     LINEARREG_ANGLE_indicator,
-    LINEARREG_indicator,
+    # LINEARREG_indicator,
     LINEARREG_INTERCEPT_indicator,
     LINEARREG_SLOPE_indicator,
     MA_indicator,
@@ -119,12 +119,12 @@ from strategies.talib_indicators import (
     MFI_indicator,
     MIDPOINT_indicator,
     MIDPRICE_indicator,
-    MINUS_DI_indicator,
+    # MINUS_DI_indicator,
     MINUS_DM_indicator,
     MOM_indicator,
     NATR_indicator,
     OBV_indicator,
-    PLUS_DI_indicator,
+    # PLUS_DI_indicator,
     PLUS_DM_indicator,
     PPO_indicator,
     ROC_indicator,
@@ -192,10 +192,10 @@ momentum_indicators = [
     MACDEXT_indicator,
     MACDFIX_indicator,
     MFI_indicator,
-    MINUS_DI_indicator,
+    # MINUS_DI_indicator,
     MINUS_DM_indicator,
     MOM_indicator,
-    PLUS_DI_indicator,
+    # PLUS_DI_indicator,
     PLUS_DM_indicator,
     PPO_indicator,
     ROC_indicator,
@@ -291,7 +291,7 @@ pattern_recognition = [
 statistical_functions = [
     BETA_indicator,
     CORREL_indicator,
-    LINEARREG_indicator,
+    # LINEARREG_indicator,
     LINEARREG_ANGLE_indicator,
     LINEARREG_INTERCEPT_indicator,
     LINEARREG_SLOPE_indicator,
@@ -300,10 +300,10 @@ statistical_functions = [
     VAR_indicator,
 ]
 
-strategies = (
-    overlap_studies
+strategies = ( 
+    volume_indicators
+    + overlap_studies
     + momentum_indicators
-    + volume_indicators
     + cycle_indicators
     + price_transforms
     + volatility_indicators

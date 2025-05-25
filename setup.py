@@ -1,11 +1,11 @@
 import math
 from datetime import datetime
 
-from alpaca.trading.client import TradingClient
 from pymongo import MongoClient, errors
 
-from config import  mongo_url, API_KEY, API_SECRET
-from utilities.ranking_trading_utils import get_latest_price, strategies
+from config import  MONGO_URL
+from utilities.ranking_trading_utils import get_latest_price
+from strategies.categorise_talib_indicators_vect import strategies
 import subprocess
 import os
 
@@ -147,7 +147,7 @@ indicator_periods = {
 
 def insert_rank_to_coefficient(i):
     try:
-        client = MongoClient(mongo_url)
+        client = MongoClient(MONGO_URL)
         db = client.trading_simulator
         collections = db.rank_to_coefficient
         """
@@ -170,7 +170,7 @@ def insert_rank_to_coefficient(i):
 
 def initialize_rank():
     try:
-        client = MongoClient(mongo_url)
+        client = MongoClient(MONGO_URL)
         db = client.trading_simulator
 
         initialization_date = datetime.now()
@@ -214,7 +214,7 @@ def initialize_rank():
 
 def initialize_time_delta():
     try:
-        client = MongoClient(mongo_url)
+        client = MongoClient(MONGO_URL)
         db = client.trading_simulator
         collection = db.time_delta
         collection.update_one(
@@ -230,7 +230,7 @@ def initialize_time_delta():
 
 def initialize_market_setup():
     try:
-        client = MongoClient(mongo_url)
+        client = MongoClient(MONGO_URL)
         db = client.market_data
         collection = db.market_status
         collection.update_one(
@@ -244,44 +244,9 @@ def initialize_market_setup():
         print(exception)
 
 
-def initialize_portfolio_percentages():
-    try:
-        client = MongoClient(mongo_url)
-        trading_client = TradingClient(API_KEY, API_SECRET)
-        account = trading_client.get_account()
-        db = client.trades
-        collection = db.portfolio_values
-
-        portfolio_value = float(account.portfolio_value)
-        collection.update_one(
-            {"name": "portfolio_percentage"},
-            {"$set": {"portfolio_value": (portfolio_value - 50000) / 50000}},
-            upsert=True,
-        )
-
-        qqq_latest = get_latest_price("QQQ")
-        collection.update_one(
-            {"name": "ndaq_percentage"},
-            {"$set": {"portfolio_value": (qqq_latest - 503.17) / 503.17}},
-            upsert=True,
-        )
-
-        spy_latest = get_latest_price("SPY")
-        collection.update_one(
-            {"name": "spy_percentage"},
-            {"$set": {"portfolio_value": (spy_latest - 590.50) / 590.50}},
-            upsert=True,
-        )
-
-        client.close()
-        print("Successfully initialized portfolio percentages")
-    except Exception as exception:
-        print(exception)
-
-
 def initialize_indicator_setup():
     try:
-        client = MongoClient(mongo_url)
+        client = MongoClient(MONGO_URL)
         db = client["IndicatorsDatabase"]
         collection = db["Indicators"]
 
@@ -300,7 +265,7 @@ def initialize_indicator_setup():
 
 def initialize_historical_database_cache():
     try:
-        client = MongoClient(mongo_url)
+        client = MongoClient(MONGO_URL)
         db = client["HistoricalDatabase"]
         collection = db["HistoricalDatabase"]
         print("Historical DB collection : ", collection)
@@ -379,18 +344,16 @@ def initialize_dbs():
 
 
 if __name__ == "__main__":
-    # insert_rank_to_coefficient(200)
+    insert_rank_to_coefficient(200)
 
-    # initialize_rank()
+    initialize_rank()
 
-    # initialize_time_delta()
+    initialize_time_delta()
 
-    # initialize_market_setup()
+    initialize_market_setup()
 
-    # initialize_portfolio_percentages()
+    initialize_indicator_setup()
 
-    # initialize_indicator_setup()
-
-    # initialize_historical_database_cache()
+    initialize_historical_database_cache()
     
     initialize_dbs()

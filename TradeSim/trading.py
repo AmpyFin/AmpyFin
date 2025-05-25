@@ -19,8 +19,9 @@ from utilities.ranking_trading_utils import (
     get_latest_price,
     market_status,
     place_order,
-    strategies
+    strategies,
 )
+# from strategies.categorise_talib_indicators_vect import strategies
 from strategies.talib_indicators import get_data, simulate_strategy
 from utilities.logging import setup_logging
 logger = setup_logging(__name__)
@@ -295,6 +296,7 @@ def initialize_strategy_coefficients(mongo_client: MongoClient) -> dict:
     r_t_c_collection = sim_db.rank_to_coefficient
 
     for strategy in strategies:
+        print(f"Processing strategy: {strategy.__name__}")
         rank = rank_collection.find_one({"strategy": strategy.__name__})["rank"]
         coefficient = r_t_c_collection.find_one({"rank": rank})["coefficient"]
         strategy_to_coefficient[strategy.__name__] = coefficient
@@ -325,7 +327,7 @@ def process_market_open(mongo_client: MongoClient) -> None:
     
     indicator_periods = load_indicator_periods(mongo_client)
     strategy_to_coefficient = initialize_strategy_coefficients(mongo_client)
-
+    print(f"Strategy to coefficient mapping: {strategy_to_coefficient}")
     trading_client = TradingClient(API_KEY, API_SECRET)
 
     buy_heap = []
@@ -371,6 +373,7 @@ def main():
     while True:
         try:
             status = market_status()
+            print(f"Market status: {status}")
             market_db = mongo_client.market_data
             market_collection = market_db.market_status
             market_collection.update_one({}, {"$set": {"market_status": status}})

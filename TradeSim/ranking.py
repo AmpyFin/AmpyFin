@@ -42,6 +42,7 @@ from control import (
 from utilities.ranking_trading_utils import get_latest_price, update_ranks, strategies
 from utilities.common_utils import get_ndaq_tickers
 from strategies.talib_indicators import get_data, simulate_strategy
+# from strategies.categorise_talib_indicators_vect import strategies
 from utilities.logging import setup_logging
 logger = setup_logging(__name__)
 

@@ -35,6 +35,7 @@ from control import (
     train_trade_asset_limit,
     train_trade_liquidity_limit,
 )
+# from strategies.categorise_talib_indicators_vect import strategies
 from utilities.ranking_trading_utils import strategies
 from utilities.testing_utils import (
     calculate_metrics,
