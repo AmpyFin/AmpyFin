@@ -4,18 +4,24 @@ from os import environ as env
 
 from dotenv import load_dotenv
 
-load_dotenv()  # Load environment variables from .env file
+load_dotenv(override=True)
 
-try:
-    POLYGON_API_KEY = env["POLYGON_API_KEY"]
-    FINANCIAL_PREP_API_KEY = env["FINANCIAL_PREP_API_KEY"]
-    API_KEY = env["API_KEY"]
-    API_SECRET = env["API_SECRET"]
-    BASE_URL = env["BASE_URL"]
-    WANDB_API_KEY = env["WANDB_API_KEY"]
-    mongo_url = env["MONGO_URL"]
-    PRICE_DB_PATH = os.path.join("dbs", "price_data.db")
-    STRATEGY_DECISIONS_DB_PATH = os.path.join("dbs", "strategy_decisions.db")
-except KeyError as e:
-    print(f"[error]: {e} required environment variable missing")
+API_KEY = os.getenv("API_KEY")
+API_SECRET = os.getenv("API_SECRET")
+BASE_URL = os.getenv("BASE_URL")
+WANDB_API_KEY = os.getenv("WANDB_API_KEY")
+MONGO_URL = os.getenv("MONGO_URL")
+
+# Check and fail explicitly if something is missing
+required_vars = {
+    "API_KEY": API_KEY,
+    "API_SECRET": API_SECRET,
+    "BASE_URL": BASE_URL,
+    "WANDB_API_KEY": WANDB_API_KEY,
+    "MONGO_URL": MONGO_URL,
+}
+
+missing = [k for k, v in required_vars.items() if not v]
+if missing:
+    print(f"[error]: Missing required environment variables: {', '.join(missing)}")
     sys.exit(1)

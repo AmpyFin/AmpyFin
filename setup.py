@@ -1,11 +1,13 @@
 import math
 from datetime import datetime
 
-from alpaca.trading.client import TradingClient
 from pymongo import MongoClient, errors
 
-from config import API_KEY, API_SECRET, mongo_url
-from helper_files.client_helper import get_latest_price, strategies
+from config import  MONGO_URL
+from utilities.ranking_trading_utils import get_latest_price
+from strategies.categorise_talib_indicators_vect import strategies
+import subprocess
+import os
 
 indicator_periods = {
     "BBANDS_indicator": "1y",
@@ -145,7 +147,7 @@ indicator_periods = {
 
 def insert_rank_to_coefficient(i):
     try:
-        client = MongoClient(mongo_url)
+        client = MongoClient(MONGO_URL)
         db = client.trading_simulator
         collections = db.rank_to_coefficient
         """
@@ -168,7 +170,7 @@ def insert_rank_to_coefficient(i):
 
 def initialize_rank():
     try:
-        client = MongoClient(mongo_url)
+        client = MongoClient(MONGO_URL)
         db = client.trading_simulator
 
         initialization_date = datetime.now()
@@ -212,7 +214,7 @@ def initialize_rank():
 
 def initialize_time_delta():
     try:
-        client = MongoClient(mongo_url)
+        client = MongoClient(MONGO_URL)
         db = client.trading_simulator
         collection = db.time_delta
         collection.update_one(
@@ -228,7 +230,7 @@ def initialize_time_delta():
 
 def initialize_market_setup():
     try:
-        client = MongoClient(mongo_url)
+        client = MongoClient(MONGO_URL)
         db = client.market_data
         collection = db.market_status
         collection.update_one(
@@ -242,44 +244,9 @@ def initialize_market_setup():
         print(exception)
 
 
-def initialize_portfolio_percentages():
-    try:
-        client = MongoClient(mongo_url)
-        trading_client = TradingClient(API_KEY, API_SECRET)
-        account = trading_client.get_account()
-        db = client.trades
-        collection = db.portfolio_values
-
-        portfolio_value = float(account.portfolio_value)
-        collection.update_one(
-            {"name": "portfolio_percentage"},
-            {"$set": {"portfolio_value": (portfolio_value - 50000) / 50000}},
-            upsert=True,
-        )
-
-        qqq_latest = get_latest_price("QQQ")
-        collection.update_one(
-            {"name": "ndaq_percentage"},
-            {"$set": {"portfolio_value": (qqq_latest - 503.17) / 503.17}},
-            upsert=True,
-        )
-
-        spy_latest = get_latest_price("SPY")
-        collection.update_one(
-            {"name": "spy_percentage"},
-            {"$set": {"portfolio_value": (spy_latest - 590.50) / 590.50}},
-            upsert=True,
-        )
-
-        client.close()
-        print("Successfully initialized portfolio percentages")
-    except Exception as exception:
-        print(exception)
-
-
 def initialize_indicator_setup():
     try:
-        client = MongoClient(mongo_url)
+        client = MongoClient(MONGO_URL)
         db = client["IndicatorsDatabase"]
         collection = db["Indicators"]
 
@@ -298,7 +265,7 @@ def initialize_indicator_setup():
 
 def initialize_historical_database_cache():
     try:
-        client = MongoClient(mongo_url)
+        client = MongoClient(MONGO_URL)
         db = client["HistoricalDatabase"]
         collection = db["HistoricalDatabase"]
         print("Historical DB collection : ", collection)
@@ -306,6 +273,74 @@ def initialize_historical_database_cache():
     except errors.ConnectionError as e:
         print(f"Error connecting to the MongoDB server: {e}")
         return
+    
+def initialize_dbs():
+    # Define the paths to the scripts
+    store_price_data_path = os.path.join(os.path.dirname(__file__), 'dbs', 'store_price_data.py')
+    compute_strategy_path = os.path.join(os.path.dirname(__file__), 'dbs', 'compute_store_strategy_decisions.py')
+
+    # Construct the database paths
+    price_data_db_path = os.path.join(os.path.dirname(__file__), 'dbs', 'databases', 'price_data.db')
+    strategy_decisions_db_path = os.path.join(os.path.dirname(__file__), 'dbs', 'databases', 'strategy_decisions.db')
+
+    # Check if price_data.db already exists and remove it
+    if os.path.exists(price_data_db_path):
+        os.remove(price_data_db_path)
+        print(f"Removed existing database: {price_data_db_path}")
+    else:
+        print(f"{price_data_db_path} does not exist. Creating a new database...")
+        # Logic to create a new directory if it doesn't exist
+        price_data_dir = os.path.dirname(price_data_db_path)
+        if not os.path.exists(price_data_dir):
+            os.makedirs(price_data_dir)
+            print(f"Created new directory: {price_data_dir}")
+
+        # Logic to create a new database file if it doesn't exist
+        with open(price_data_db_path, 'w') as db_file:
+            db_file.write("")  # Create an empty file
+        print(f"Created new database: {price_data_db_path}")
+
+    # Call the first script: store_price_data.py
+    print("Calling store_price_data.py...")
+    try:
+        subprocess.run(['python', store_price_data_path], check=True)
+        print("store_price_data.py executed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing store_price_data.py: {e}")
+        return  # Exit if the first script fails
+
+    # Check if price_data.db was created
+    if not os.path.exists(price_data_db_path):
+        print(f"Error: {price_data_db_path} was not created by store_price_data.py")
+        return
+
+    # Check if strategy_decisions.db already exists and remove it
+    if os.path.exists(strategy_decisions_db_path):
+        os.remove(strategy_decisions_db_path)
+        print(f"Removed existing database: {strategy_decisions_db_path}")
+    else: 
+        print(f"{strategy_decisions_db_path} does not exist. Creating a new database...")
+        # Logic to create a new directory if it doesn't exist
+        price_data_dir = os.path.dirname(price_data_db_path)
+        if not os.path.exists(price_data_dir):
+            os.makedirs(price_data_dir)
+            print(f"Created new directory: {price_data_dir}")
+            
+        # Logic to create a new database if it doesn't exist
+        with open(strategy_decisions_db_path, 'w') as db_file:
+            db_file.write("") # Create an empty file
+        print(f"Created new database: {strategy_decisions_db_path}")
+
+    # Call the second script: compute_store_strategy_decisions.py
+    print("Calling compute_store_strategy_decisions.py...")
+    try:
+        subprocess.run(['python', compute_strategy_path], check=True)
+        print("compute_store_strategy_decisions.py executed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing compute_store_strategy_decisions.py: {e}")
+        return
+
+    
 
 
 if __name__ == "__main__":
@@ -317,8 +352,8 @@ if __name__ == "__main__":
 
     initialize_market_setup()
 
-    initialize_portfolio_percentages()
-
     initialize_indicator_setup()
 
     initialize_historical_database_cache()
+    
+    initialize_dbs()

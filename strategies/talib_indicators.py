@@ -7,7 +7,6 @@ import talib as ta
 import yfinance as yf
 
 from control import trade_asset_limit
-from utils.session import limiter
 
 sys.path.append("..")
 
@@ -27,7 +26,7 @@ def get_data(ticker, mongo_client, period=None, start_date=None, end_date=None):
                     df.set_index("Date", inplace=True)
                     return df
                 else:
-                    ticker_obj = yf.Ticker(ticker, session=limiter)
+                    ticker_obj = yf.Ticker(ticker)
                     data = ticker_obj.history(period=period)
 
                     records = data.reset_index().to_dict("records")
@@ -44,23 +43,40 @@ def get_data(ticker, mongo_client, period=None, start_date=None, end_date=None):
         return data
     else:
         try:
-            return yf.Ticker(ticker, session=limiter).history(
+            return yf.Ticker(ticker).history(
                 start=start_date, end=end_date
             )
         except Exception as e:
             print(f"Error fetching data for {ticker}: {e}")
             time.sleep(10)
 
-
 def simulate_strategy(
-    strategy,
-    ticker,
-    current_price,
-    historical_data,
-    account_cash,
-    portfolio_qty,
-    total_portfolio_value,
-):
+                strategy: callable,
+                ticker: str,
+                current_price: float,
+                historical_data: pd.DataFrame,
+                account_cash: float,
+                portfolio_qty: int,
+                total_portfolio_value: float,
+            ) -> tuple[str, int]:
+    """Simulates a trading strategy based on TA-Lib indicators.
+
+        Args:
+            strategy (callable): A function that takes a ticker and historical data
+                and returns a trading action ("Buy", "Sell", or "Hold").
+            ticker (str): The ticker symbol of the asset being traded.
+            current_price (float): The current price of the asset.
+            historical_data (pd.DataFrame): Historical price data for the asset.
+                Must be a Pandas DataFrame.
+            account_cash (float): The amount of cash available in the trading account.
+            portfolio_qty (int): The quantity of the asset currently held in the portfolio.
+            total_portfolio_value (float): The total value of the portfolio.
+
+        Returns:
+            tuple: A tuple containing the trading action ("buy", "sell", or "hold")
+                and the quantity to trade.
+
+    """
     max_investment = total_portfolio_value * trade_asset_limit
     action = strategy(ticker, historical_data)
 

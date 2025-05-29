@@ -1,102 +1,102 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Main entry point for the trading simulator application.
+
+This module handles the initialization of the MongoDB client, artifact directory setup,
+and calls the appropriate training, testing, or live workflows.
+"""
 import logging
 import os
 import sys
-
 import certifi
-from push import push
-
-# from push import push
+import subprocess
+import signal
+import time
 from pymongo import MongoClient
-from testing import test
-from training import train
-from variables import config_dict
-
 import wandb
 
-# Local module imports after standard/third-party imports
-from config import FINANCIAL_PREP_API_KEY, mongo_url
-from control import mode, test_period_end, train_period_start, train_tickers
-from helper_files.client_helper import get_ndaq_tickers, strategies
-from TradeSim.utils import initialize_simulation, precompute_strategy_decisions
-
-# Ensure sys.path manipulation is at the top, before other local imports
+# Add the parent directory to the Python path (assumes this file is in TradeSim/)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-ca = certifi.where()
+# Local imports
+from config import MONGO_URL
+from variables import config_dict
+from control import mode
+from training import train
+from testing import test
+from utilities.logging import setup_logging
+logger = setup_logging(__name__)
 
-# Set up logging
-logs_dir = "log"
-# Create the directory if it doesn't exist
-if not os.path.exists(logs_dir):
-    os.makedirs(logs_dir)
+# Base paths
+def _get_paths():
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    ARTIFACTS = os.path.join(BASE_DIR, 'artifacts')
+    return {
+        'base': BASE_DIR,
+        'artifacts': ARTIFACTS,
+        'logs': os.path.join(ARTIFACTS, 'log'),
+        'wandb': os.path.join(ARTIFACTS, 'wandb'),
+        'results': os.path.join(ARTIFACTS, 'results'),
+        'tearsheets': os.path.join(ARTIFACTS, 'tearsheets'),
+    }
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+PATHS = _get_paths()
+_procs = []  # keep track of child processes for shutdown handling
 
-formatter = logging.Formatter(
-    "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
 
-file_handler = logging.FileHandler(os.path.join(logs_dir, "train_test.log"))
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
+def create_artifacts_dirs() -> None:
+    """
+    Create the artifacts directory and all required subdirectories if they don't exist.
+    """
+    os.makedirs(PATHS['artifacts'], exist_ok=True)
+    for key in ('logs', 'wandb', 'results', 'tearsheets'):
+        os.makedirs(PATHS[key], exist_ok=True)
 
-if __name__ == "__main__":
-    mongo_client = MongoClient(mongo_url, tlsCAFile=ca)
 
-    # Initialize W&B run
+def initialize_wandb() -> None:
+    """
+    Initialize the Weights & Biases (wandb) integration.
+
+    Sets the WANDB_DIR environment so wandb files go under artifacts.
+    """
+    os.environ['WANDB_DIR'] = PATHS['wandb']
     wandb.login()
     wandb.init(
-        project=config_dict["project_name"],
+        project=config_dict['project_name'],
         config=config_dict,
-        name=config_dict["experiment_name"],
+        name=config_dict['experiment_name'],
     )
 
-    # If no tickers provided, fetch Nasdaq tickers
-    if not train_tickers:
-        logger.info("No tickers provided. Fetching Nasdaq tickers...")
-        train_tickers = get_ndaq_tickers(mongo_client, FINANCIAL_PREP_API_KEY)
-        logger.info(f"Fetched {len(train_tickers)} tickers.")
+def main() -> None:
+    """
+    Main function that initializes the application and runs the selected mode.
+    """
+    create_artifacts_dirs()
+    logger.info("Starting trading simulator application")
 
-    ticker_price_history, ideal_period = initialize_simulation(
-        train_period_start,
-        test_period_end,
-        train_tickers,
-        mongo_client,
-        FINANCIAL_PREP_API_KEY,
-        logger,
-    )
+    # Initialize MongoDB client
+    ca = certifi.where()
+    mongo_client = MongoClient(MONGO_URL, tlsCAFile=ca)
+    logger.info("MongoDB client initialized")
+    # Initialize W&B
+    initialize_wandb()
+    logger.info("Weights & Biases initialized")
 
-    # Precompute all strategy decisions
-    precomputed_decisions = precompute_strategy_decisions(
-        strategies,
-        ticker_price_history,
-        train_tickers,
-        ideal_period,
-        train_period_start,
-        test_period_end,
-        logger,
-    )
+    if mode == 'train':
+        logger.info("Running in training mode")
+        train()
+    elif mode == 'test':
+        logger.info("Running in testing mode")
+        test(mongo_client=mongo_client)
+    elif mode == 'push':
+        logger.warning("Push mode is not implemented yet")
+        sys.exit(1)
+    else:
+        logger.error(f"Invalid mode: {mode}")
+        sys.exit(1)
 
-    if mode == "train":
-        train(
-            ticker_price_history,
-            ideal_period,
-            mongo_client,
-            precomputed_decisions,
-            logger,
-        )
+    logger.info("Application completed successfully")
 
-    elif mode == "test":
-        test(
-            ticker_price_history,
-            ideal_period,
-            mongo_client,
-            precomputed_decisions,
-            logger,
-        )
-    elif mode == "push":
-        push()
-    # elif mode == "push":
-    #     push()
+if __name__ == '__main__':
+    main()
