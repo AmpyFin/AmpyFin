@@ -581,3 +581,17 @@ def profile_api_calls():
     stats.sort_stats('cumulative')
     stats.print_stats()
 ```
+## FXMacroData Release Calendar
+
+Strategies can import `fetch_fxmacrodata_calendar` to add official macro event
+awareness before opening or resizing positions:
+
+```python
+from utilities.fxmacrodata_calendar import fetch_fxmacrodata_calendar, release_dates
+
+events = fetch_fxmacrodata_calendar("usd", min_tier=1)
+blocked_dates = release_dates(events)
+```
+
+Set `FXMACRODATA_API_KEY` when using authenticated FXMacroData endpoints. Public
+USD calendar rows work without a key.
